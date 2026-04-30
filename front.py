@@ -19,7 +19,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-API_URL = os.getenv("API_URL", "http://127.0.0.1:5000")
+API_URL = os.getenv("API_URL", "https://flask-backend-ygwu.onrender.com/")
 
 st.set_page_config(layout='wide')
 st.markdown("""
