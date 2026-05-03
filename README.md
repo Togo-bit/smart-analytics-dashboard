@@ -2,7 +2,7 @@
 
 Analyze your data in seconds — no coding required.
 
-👉 **Try it live:** App_url = https://smart-analytics-dashboard-wbaguwtbf6getkfpafjvhm.streamlit.app/
+👉 **Try it live:** https://smart-analytics-dashboard-wbaguwtbf6getkfpafjvhm.streamlit.app/
 
 Turn raw CSV files into powerful insights with interactive charts, KPIs, and automated analysis.
 
