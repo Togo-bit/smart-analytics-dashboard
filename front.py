@@ -104,16 +104,19 @@ else:
         upload_file = st.file_uploader('Upload a CSV file', type=['csv'])
 
         if upload_file:
-            df = pd.read_csv(upload_file)
-            st.session_state['df'] = df
+            try:
+                df = pd.read_csv(upload_file)
 
-            st.markdown("### 🔍 Preview")
-            st.dataframe(df.head())
+                st.session_state['df'] = df
 
-            col1, col2 = st.columns(2)
-            col1.metric('Rows', df.shape[0])
-            col2.metric('Columns', df.shape[1])
+                st.markdown("### 🔍 Preview")
+                st.dataframe(df.head())
 
+                col1, col2 = st.columns(2)
+                col1.metric('Rows', df.shape[0])
+                col2.metric('Columns', df.shape[1])
+            except UnicodeDecodeError:
+                st.error("⚠️ File encoding issue. Try re-saving your CSV as UTF-8 in Excel.")
         else:
             st.info("Upload a CSV file to see preview")
 
@@ -147,18 +150,24 @@ else:
                     st.stop()
 
             with st.sidebar.expander("Chart Settings"):
-                aggregation = st.selectbox(
-                    'Aggregation',
-                    ['sum', 'mean', 'max', 'min', 'count']
-                )
+
+                st.markdown("### 📊 Column-wise Aggregation")
+
+                agg_dict = {}
+                for col in numeric_cols:
+                    agg_dict[col] = st.selectbox(
+                        f"{col}",
+                        ['sum', 'mean', 'max', 'min', 'count'],
+                        key=f"agg_{col}"
+                    )
 
                 chart = st.selectbox(
                     'Chart Type',
-                    ['line', 'bar', 'area','pie','histogram']
+                    ['line', 'bar', 'area', 'pie', 'histogram']
                 )
 
             # Aggregation
-            result = df.groupby(group_col)[numeric_cols].agg(aggregation)
+            result = df.groupby(group_col).agg(agg_dict)
 
             # ===================== KPI CARD =====================
             kpi_col = st.selectbox("Select KPI Column", val_cols)
@@ -218,7 +227,8 @@ else:
             # ===================== CHART CARD =====================
             st.markdown('<div class="card">', unsafe_allow_html=True)
 
-            st.subheader(f"📊 {aggregation.title()} of {', '.join(numeric_cols)} by {group_col}")
+            agg_text = ", ".join([f"{col} ({agg_dict[col]})" for col in numeric_cols])
+            st.subheader(f"📊 {agg_text} by {group_col}")
 
             result = result.reset_index().set_index(group_col)
 
@@ -234,12 +244,12 @@ else:
 
                 pie_col = numeric_cols[0]
 
-                pie_data = df.groupby(group_col)[pie_col].agg(aggregation).reset_index()
+                pie_data = df.groupby(group_col)[pie_col].agg(agg_dict[pie_col]).reset_index()
                 fig = px.pie(
                     pie_data,
                     names=group_col,
                     values=pie_col,
-                    title=f"{aggregation.title()} of {pie_col}"
+                    title=f"{agg_dict[pie_col].title()} of {pie_col}"
                 )
                 st.plotly_chart(fig)
             elif chart == 'histogram':
