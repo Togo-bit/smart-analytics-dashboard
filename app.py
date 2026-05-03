@@ -58,9 +58,9 @@ def login():
                 "exp":datetime.datetime.utcnow() + datetime.timedelta(hours=2)
             }, app.config['SECRET_KEY'], algorithm='HS256')
 
-            return {"token":token}
+            return {"token":token}, 200
 
-        return {"message":"Invalid username or password"}
+        return {"message":"Invalid username or password"}, 401
 
     return render_template('login.html')
 
