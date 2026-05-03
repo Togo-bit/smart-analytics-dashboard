@@ -142,8 +142,8 @@ else:
                     st.warning('Please select atleast one numeric column')
                     st.stop()
 
-                if group_col == numeric_cols:
-                    st.warning("Group column and numeric column cannot be the same.")
+                if group_col in numeric_cols:
+                    st.warning("Group column cannot be one of the selected numeric columns.")
                     st.stop()
 
             with st.sidebar.expander("Chart Settings"):
