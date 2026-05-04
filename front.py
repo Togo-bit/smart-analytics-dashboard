@@ -19,6 +19,51 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+st.markdown("""
+<style>
+
+/* Make buttons square tiles */
+button[kind="secondary"] {
+    height: 80px !important;
+    aspect-ratio: 1 / 1 !important;  
+    width: 100% !important;
+
+    font-size: 28px !important;
+    border-radius: 12px !important;   /* reduce curve */
+
+    border: 1px solid rgba(255,255,255,0.1) !important;
+    background-color: #1E293B !important;
+
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+
+    padding: 0 !important;   /* remove weird spacing */
+}
+
+/* Hover */
+button[kind="secondary"]:hover {
+    background-color: #334155 !important;
+    transform: scale(1.05);
+    transition: 0.2s ease;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<style>
+
+/* Selected chart button */
+button[kind="secondary"][aria-pressed="true"] {
+    background-color: #2563EB !important;
+    color: white !important;
+    border: 1px solid #2563EB !important;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
 API_URL = os.getenv("API_URL", "https://flask-backend-ygwu.onrender.com/")
 
 st.set_page_config(layout='wide')
@@ -161,13 +206,83 @@ else:
                         key=f"agg_{col}"
                     )
 
-                chart = st.selectbox(
-                    'Chart Type',
-                    ['line', 'bar', 'area', 'pie', 'histogram']
+                st.markdown("### 📊 Chart Type")
+
+                cols = st.columns(5)
+
+
+                def chart_btn(icon, value, help_text):
+                    if st.button(icon, key=value, help=help_text, use_container_width=True):
+                        st.session_state["chart_type"] = value
+
+
+                with cols[0]:
+                    chart_btn("📈", "line", "Line Chart")
+                with cols[1]:
+                    chart_btn("📊", "bar", "Bar Chart")
+                with cols[2]:
+                    chart_btn("📉", "area", "Area Chart")
+                with cols[3]:
+                    chart_btn("🥧", "pie", "Pie Chart")
+                with cols[4]:
+                    chart_btn("📦", "histogram", "Histogram")
+
+                chart = st.session_state.get("chart_type", "bar")
+
+                selected = st.session_state.get("chart_type", "bar")
+
+                st.caption(f"Selected: {selected.upper()}")
+
+            with st.sidebar.expander("🔍 Advanced Filters"):
+
+                filter_type = st.selectbox(
+                    "Filter Type",
+                    ["None", "Top N", "Bottom N", "Include Values"],
+                    key="filter_type"
                 )
+
+                sort_col = None
+                top_n = None
+                selected_values = None
+
+                if filter_type in ["Top N", "Bottom N"]:
+                    sort_col = st.selectbox(
+                        "Sort By Column",
+                        numeric_cols,
+                        key="sort_col_select"
+                    )
+
+                    top_n = st.slider(
+                        "Select N",
+                        1, 20, 5,
+                        key="top_n_slider"
+                    )
+
+                elif filter_type == "Include Values":
+                    selected_values = st.multiselect(
+                        f"Select {group_col} values",
+                        sorted(df[group_col].dropna().unique()),
+                        key="include_values_multiselect"
+                    )
 
             # Aggregation
             result = df.groupby(group_col).agg(agg_dict)
+
+            # Reset index for filtering
+            result = result.reset_index()
+
+            # ================= APPLY FILTER =================
+            if filter_type == "Top N" and sort_col:
+                result = result.sort_values(by=sort_col, ascending=False).head(top_n)
+
+            elif filter_type == "Bottom N" and sort_col:
+                result = result.sort_values(by=sort_col, ascending=True).head(top_n)
+
+            elif filter_type == "Include Values":
+                if selected_values:
+                    result = result[result[group_col].isin(selected_values)]
+
+            result = result.set_index(group_col)
 
             # ===================== KPI CARD =====================
             kpi_col = st.selectbox("Select KPI Column", val_cols)
