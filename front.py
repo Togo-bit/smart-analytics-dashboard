@@ -22,14 +22,17 @@ st.markdown("""
 st.markdown("""
 <style>
 
-/* Make buttons square tiles */
-button[kind="secondary"] {
+/* ================= CHART BUTTONS ONLY ================= */
+
+/* Target ONLY buttons inside chart container */
+.chart-buttons button {
     height: 80px !important;
-    aspect-ratio: 1 / 1 !important;  
+    aspect-ratio: 1 / 1 !important;
     width: 100% !important;
 
-    font-size: 28px !important;
-    border-radius: 12px !important;   /* reduce curve */
+    font-size: 26px !important;
+    border-radius: 12px !important;
+    padding: 0 !important;
 
     border: 1px solid rgba(255,255,255,0.1) !important;
     background-color: #1E293B !important;
@@ -37,25 +40,17 @@ button[kind="secondary"] {
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
-
-    padding: 0 !important;   /* remove weird spacing */
 }
 
-/* Hover */
-button[kind="secondary"]:hover {
+/* Hover effect */
+.chart-buttons button:hover {
     background-color: #334155 !important;
     transform: scale(1.05);
     transition: 0.2s ease;
 }
 
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown("""
-<style>
-
-/* Selected chart button */
-button[kind="secondary"][aria-pressed="true"] {
+/* Selected button */
+.chart-buttons button[aria-pressed="true"] {
     background-color: #2563EB !important;
     color: white !important;
     border: 1px solid #2563EB !important;
@@ -212,8 +207,12 @@ else:
 
 
                 def chart_btn(icon, value, help_text):
+                    st.markdown('<div class="chart-buttons">', unsafe_allow_html=True)
+
                     if st.button(icon, key=value, help=help_text, use_container_width=True):
                         st.session_state["chart_type"] = value
+
+                    st.markdown('</div>', unsafe_allow_html=True)
 
 
                 with cols[0]:
@@ -229,9 +228,7 @@ else:
 
                 chart = st.session_state.get("chart_type", "bar")
 
-                selected = st.session_state.get("chart_type", "bar")
-
-                st.caption(f"Selected: {selected.upper()}")
+                st.caption(f"Selected: {chart.upper()}")
 
             with st.sidebar.expander("🔍 Advanced Filters"):
 
