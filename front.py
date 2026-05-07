@@ -201,6 +201,8 @@ else:
                         key=f"agg_{col}"
                     )
 
+                agg_text = ", ".join([f"{col} ({agg_dict[col]})" for col in numeric_cols])
+
                 st.markdown("### 📊 Chart Type")
 
                 cols = st.columns(5)
@@ -229,6 +231,64 @@ else:
                 chart = st.session_state.get("chart_type", "bar")
 
                 st.caption(f"Selected: {chart.upper()}")
+
+                st.markdown("###  Chart Title")
+
+                custom_title = st.text_input(
+                    "Chart Title",
+                    value=f"{agg_text} by {group_col}"
+                )
+
+                custom_subtitle = st.text_input(
+                    "Chart Subtitle (optional)",
+                    value=""
+                )
+
+                st.markdown("###  Chart Styling")
+
+                chart_color = st.color_picker(
+                    "Chart Color",
+                    "#2563EB"
+                )
+
+                axis_font_size = st.slider(
+                    "Axis Font Size",
+                    10,
+                    30,
+                    16
+                )
+
+                axis_color = st.color_picker(
+                    "Axis Label Color",
+                    "#FFFFFF"
+                )
+
+                axis_bold = st.checkbox(
+                    "Bold Axis Labels",
+                    value=True
+                )
+
+                x_label = st.text_input(
+                    "X-axis Label",
+                    value=group_col
+                )
+
+                y_label = st.text_input(
+                    "Y-axis Label",
+                    value=", ".join(numeric_cols)
+                )
+
+                pie_theme = st.selectbox(
+                    "Pie Chart Theme",
+                    [
+                        "Vibrant",
+                        "Pastel",
+                        "Neon",
+                        "Dark",
+                        "Sunset",
+                        "Ocean"
+                    ]
+                )
 
             with st.sidebar.expander("🔍 Advanced Filters"):
 
@@ -339,17 +399,89 @@ else:
             # ===================== CHART CARD =====================
             st.markdown('<div class="card">', unsafe_allow_html=True)
 
-            agg_text = ", ".join([f"{col} ({agg_dict[col]})" for col in numeric_cols])
-            st.subheader(f"📊 {agg_text} by {group_col}")
+            pie_colors = {
+
+                "Vibrant": [
+                    "#FF6B6B",
+                    "#4ECDC4",
+                    "#FFE66D",
+                    "#1A535C",
+                    "#FF9F1C"
+                ],
+
+                "Pastel": [
+                    "#A8DADC",
+                    "#F1FAEE",
+                    "#FFCAD4",
+                    "#CDB4DB",
+                    "#BDE0FE"
+                ],
+
+                "Neon": [
+                    "#00F5D4",
+                    "#F15BB5",
+                    "#9B5DE5",
+                    "#FEE440",
+                    "#00BBF9"
+                ],
+
+                "Dark": [
+                    "#264653",
+                    "#2A9D8F",
+                    "#E9C46A",
+                    "#F4A261",
+                    "#E76F51"
+                ],
+
+                "Sunset": [
+                    "#FF5E5B",
+                    "#D7263D",
+                    "#F49D37",
+                    "#140F2D",
+                    "#3F88C5"
+                ],
+
+                "Ocean": [
+                    "#03045E",
+                    "#0077B6",
+                    "#00B4D8",
+                    "#90E0EF",
+                    "#CAF0F8"
+                ]
+            }
+
+            st.subheader(f"📊 {custom_title}")
+
+            if custom_subtitle:
+                st.caption(custom_subtitle)
 
             result = result.reset_index().set_index(group_col)
 
+            plot_data = result.reset_index()
+
             if chart == 'line':
-                st.line_chart(result)
+
+                fig = px.line(
+                    plot_data,
+                    x=group_col,
+                    y=numeric_cols
+                )
+
             elif chart == 'bar':
-                st.bar_chart(result)
+
+                fig = px.bar(
+                    plot_data,
+                    x=group_col,
+                    y=numeric_cols
+                )
+
             elif chart == 'area':
-                st.area_chart(result)
+
+                fig = px.area(
+                    plot_data,
+                    x=group_col,
+                    y=numeric_cols
+                )
             elif chart == 'pie':
                 if len(numeric_cols) > 1:
                     st.warning('Pie Chart only supports one column, Using first selected')
@@ -361,9 +493,8 @@ else:
                     pie_data,
                     names=group_col,
                     values=pie_col,
-                    title=f"{agg_dict[pie_col].title()} of {pie_col}"
+                    color_discrete_sequence=pie_colors[pie_theme]
                 )
-                st.plotly_chart(fig)
             elif chart == 'histogram':
                 fig = px.histogram(
                     df,
@@ -371,7 +502,73 @@ else:
                     barmode='overlay',
                     title=f"Distrinution of {numeric_cols}"
                 )
-                st.plotly_chart(fig)
+
+            # ================= CHART STYLING =================
+
+            font_family = "Arial Black" if axis_bold else "Arial"
+
+            if chart == "pie":
+
+                fig.update_layout(
+                    template="plotly_dark"
+                )
+            else:
+                fig.update_layout(
+                    xaxis_title=x_label,
+                    yaxis_title=y_label,
+
+                    xaxis=dict(
+                        title_font=dict(
+                            size=axis_font_size,
+                            color=axis_color,
+                            family=font_family
+                        ),
+                        tickfont=dict(
+                            size=axis_font_size,
+                            color=axis_color
+                        )
+                    ),
+
+                    yaxis=dict(
+                        title_font=dict(
+                            size=axis_font_size,
+                            color=axis_color,
+                            family=font_family
+                        ),
+                        tickfont=dict(
+                            size=axis_font_size,
+                            color=axis_color
+                        )
+                    ),
+
+                    template="plotly_dark"
+                )
+
+                # Apply chart color
+                if chart == "line":
+
+                    fig.update_traces(
+                        line=dict(color=chart_color, width=3)
+                    )
+
+                elif chart == "area":
+
+                    fig.update_traces(
+                        line=dict(color=chart_color),
+                        fillcolor=chart_color
+                    )
+
+                else:
+
+                    fig.update_traces(
+                        marker_color=chart_color
+                    )
+
+                # SHOW CHART
+            st.plotly_chart(
+                fig,
+                use_container_width=True
+            )
 
             st.markdown('</div>', unsafe_allow_html=True)
 
