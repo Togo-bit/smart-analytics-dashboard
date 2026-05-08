@@ -246,9 +246,16 @@ else:
 
                 st.markdown("###  Chart Styling")
 
-                chart_color = st.color_picker(
-                    "Chart Color",
-                    "#2563EB"
+                chart_theme = st.selectbox(
+                    "Chart Color Theme",
+                    [
+                        "Default",
+                        "Vibrant",
+                        "Pastel",
+                        "Neon",
+                        "Ocean",
+                        "Sunset"
+                    ]
                 )
 
                 axis_font_size = st.slider(
@@ -288,6 +295,25 @@ else:
                         "Sunset",
                         "Ocean"
                     ]
+                )
+
+                st.markdown("### ✨ Hover Styling")
+
+                hover_bg = st.color_picker(
+                    "Hover Background",
+                    "#111827"
+                )
+
+                hover_font_color = st.color_picker(
+                    "Hover Text Color",
+                    "#FFFFFF"
+                )
+
+                hover_font_size = st.slider(
+                    "Hover Font Size",
+                    10,
+                    24,
+                    14
                 )
 
             with st.sidebar.expander("🔍 Advanced Filters"):
@@ -398,6 +424,57 @@ else:
 
             # ===================== CHART CARD =====================
             st.markdown('<div class="card">', unsafe_allow_html=True)
+
+            color_palettes = {
+
+                "Default": [
+                    "#636EFA",
+                    "#EF553B",
+                    "#00CC96",
+                    "#AB63FA",
+                    "#FFA15A"
+                ],
+
+                "Vibrant": [
+                    "#FF6B6B",
+                    "#4ECDC4",
+                    "#FFE66D",
+                    "#1A535C",
+                    "#FF9F1C"
+                ],
+
+                "Pastel": [
+                    "#A8DADC",
+                    "#FFCAD4",
+                    "#CDB4DB",
+                    "#BDE0FE",
+                    "#FFC8DD"
+                ],
+
+                "Neon": [
+                    "#00F5D4",
+                    "#F15BB5",
+                    "#9B5DE5",
+                    "#FEE440",
+                    "#00BBF9"
+                ],
+
+                "Ocean": [
+                    "#03045E",
+                    "#0077B6",
+                    "#00B4D8",
+                    "#90E0EF",
+                    "#CAF0F8"
+                ],
+
+                "Sunset": [
+                    "#FF5E5B",
+                    "#D7263D",
+                    "#F49D37",
+                    "#140F2D",
+                    "#3F88C5"
+                ]
+            }
 
             pie_colors = {
 
@@ -510,6 +587,15 @@ else:
             if chart == "pie":
 
                 fig.update_layout(
+
+                    hoverlabel=dict(
+                        bgcolor=hover_bg,
+                        font_size=hover_font_size,
+                        font_color=hover_font_color,
+                        font_family="Arial",
+                        bordercolor="#334155"
+                    ),
+
                     template="plotly_dark"
                 )
             else:
@@ -544,25 +630,75 @@ else:
                     template="plotly_dark"
                 )
 
-                # Apply chart color
-                if chart == "line":
+                # ================= APPLY COLORS =================
+
+                if chart != "pie":
+
+                    colors = color_palettes[chart_theme]
+
+                    for i, trace in enumerate(fig.data):
+
+                        color = colors[i % len(colors)]
+
+                        if chart == "line":
+
+                            trace.line.color = color
+                            trace.line.width = 3
+
+                        elif chart == "area":
+
+                            trace.line.color = color
+                            trace.fillcolor = color
+
+                        else:
+
+                            trace.marker.color = color
+
+                # ================= HOVER EFFECT =================
+
+                # ================= HOVER EFFECT =================
+
+                if chart in ["line", "bar", "area"]:
 
                     fig.update_traces(
-                        line=dict(color=chart_color, width=3)
+
+                        hovertemplate=
+                        "<b>📍 %{x}</b><br>" +
+                        "📊 Value: %{y:,.2f}<br>" +
+                        "<extra></extra>"
                     )
 
-                elif chart == "area":
+                elif chart == "pie":
 
                     fig.update_traces(
-                        line=dict(color=chart_color),
-                        fillcolor=chart_color
+
+                        hovertemplate=
+                        "<b>%{label}</b><br>" +
+                        "📊 Value: %{value:,.2f}<br>" +
+                        "📈 Percentage: %{percent}<br>" +
+                        "<extra></extra>"
                     )
 
-                else:
+                elif chart == "histogram":
 
                     fig.update_traces(
-                        marker_color=chart_color
+
+                        hovertemplate=
+                        "<b>Range:</b> %{x}<br>" +
+                        "📊 Count: %{y}<br>" +
+                        "<extra></extra>"
                     )
+
+                # APPLY HOVER STYLING
+                fig.update_layout(
+
+                    hoverlabel=dict(
+                        bgcolor=hover_bg,
+                        font_size=hover_font_size,
+                        font_color=hover_font_color,
+                        font_family="Arial"
+                    )
+                )
 
                 # SHOW CHART
             st.plotly_chart(
