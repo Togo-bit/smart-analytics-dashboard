@@ -114,7 +114,7 @@ if "token" not in st.session_state:
                         st.session_state["user_email"] = email
                         st.session_state['token'] = response_data['token']
 
-                        posthog.identify(
+                        posthog.capture(
                             distinct_id=email,
                             properties={
                                 "email": email
@@ -157,7 +157,7 @@ if "token" not in st.session_state:
                 )
 
                 if res.status_code == 200:
-                    posthog.identify(
+                    posthog.capture(
                         distinct_id=email,
                         properties={
                             "email": email,
