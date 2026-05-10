@@ -4,6 +4,7 @@ import streamlit as st
 import pandas as pd
 import requests
 import plotly.express as px
+import posthog
 import os
 
 st.markdown("""
@@ -60,8 +61,15 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 API_URL = os.getenv("API_URL", "https://flask-backend-ygwu.onrender.com/")
+posthog.api_key = os.getenv("POSTHOG_API_KEY")
+posthog.host = "https://app.posthog.com"
 
 st.set_page_config(layout='wide')
+posthog.capture(
+    distinct_id="anonymous_user",
+    event="app_opened"
+)
+
 st.markdown("""
 # 📊 Smart Analytics Dashboard
 ### Upload • Analyze • Get Insights
@@ -88,6 +96,11 @@ if "token" not in st.session_state:
                     response_data = res.json()
 
                     if "token" in response_data:
+                        posthog.capture(
+                            distinct_id=email,
+                            event="user_logged_in"
+                        )
+
                         st.session_state['token'] = response_data['token']
                         st.success("Login Successful")
                         st.rerun()
@@ -120,6 +133,11 @@ if "token" not in st.session_state:
                 )
 
                 if res.status_code == 200:
+                    posthog.capture(
+                        distinct_id=email,
+                        event="user_registered"
+                    )
+
                     st.success('Registration Successful')
                 else:
                     st.error(res.json().get("message", "Registration failed"))
@@ -147,6 +165,15 @@ else:
             try:
                 df = pd.read_csv(upload_file)
 
+                posthog.capture(
+                    distinct_id="anonymous_user",
+                    event="dataset_uploaded",
+                    properties={
+                        "rows": df.shape[0],
+                        "columns": df.shape[1]
+                    }
+                )
+
                 st.session_state['df'] = df
 
                 st.markdown("### 🔍 Preview")
@@ -155,7 +182,16 @@ else:
                 col1, col2 = st.columns(2)
                 col1.metric('Rows', df.shape[0])
                 col2.metric('Columns', df.shape[1])
-            except UnicodeDecodeError:
+            except UnicodeDecodeError as e:
+
+                posthog.capture(
+                    distinct_id="anonymous_user",
+                    event="upload_error",
+                    properties={
+                        "error": str(e)
+                    }
+                )
+
                 st.error("⚠️ File encoding issue. Try re-saving your CSV as UTF-8 in Excel.")
         else:
             st.info("Upload a CSV file to see preview")
@@ -706,6 +742,14 @@ else:
                 use_container_width=True
             )
 
+            posthog.capture(
+                distinct_id="anonymous_user",
+                event="dashboard_generated",
+                properties={
+                    "chart_type": chart
+                }
+            )
+
             st.markdown('</div>', unsafe_allow_html=True)
 
             # ===================== DOWNLOAD CARD =====================
@@ -716,12 +760,16 @@ else:
             results_df = result.reset_index()
             csv = results_df.to_csv(index=False).encode('utf-8')
 
-            st.download_button(
-                label='Download Aggregated Results',
-                data=csv,
-                file_name='analysis_output.csv',
-                mime='text/csv'
-            )
+            if st.download_button(
+                    label='Download Aggregated Results',
+                    data=csv,
+                    file_name='analysis_output.csv',
+                    mime='text/csv'
+            ):
+                posthog.capture(
+                    distinct_id="anonymous_user",
+                    event="analysis_downloaded"
+                )
 
             st.markdown('</div>', unsafe_allow_html=True)
 
@@ -802,6 +850,10 @@ else:
             st.subheader("🔐 Session")
 
             if st.button('Logout'):
+                posthog.capture(
+                    distinct_id="anonymous_user",
+                    event="user_logged_out"
+                )
                 del st.session_state['token']
                 if "df" in st.session_state:
                     del st.session_state['df']
