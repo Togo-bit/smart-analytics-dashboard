@@ -62,7 +62,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 API_URL = os.getenv("API_URL", "https://flask-backend-ygwu.onrender.com/")
-posthog.api_key = st.secrets["POSTHOG_API_KEY"]
+posthog.project_api_key = st.secrets["POSTHOG_API_KEY"]
 posthog.host = "https://app.posthog.com"
 
 st.set_page_config(layout='wide')
@@ -116,6 +116,7 @@ if "token" not in st.session_state:
 
                         posthog.capture(
                             distinct_id=email,
+                            event="user_identified",
                             properties={
                                 "email": email
                             }
@@ -157,17 +158,12 @@ if "token" not in st.session_state:
                 )
 
                 if res.status_code == 200:
-                    posthog.capture(
-                        distinct_id=email,
-                        properties={
-                            "email": email,
-                            "username": username
+                    distinct_id=email,
+                    event="user_registered",
+                    properties={
+                        "email": email,
+                        "username": username
                         }
-                    )
-
-                    posthog.capture(
-                        distinct_id=email,
-                        event="user_registered"
                     )
 
                     st.success('Registration Successful')
