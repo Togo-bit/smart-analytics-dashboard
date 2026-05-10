@@ -61,7 +61,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 API_URL = os.getenv("API_URL", "https://flask-backend-ygwu.onrender.com/")
-posthog.api_key = os.getenv("POSTHOG_API_KEY")
 posthog.host = "https://app.posthog.com"
 
 st.set_page_config(layout='wide')
