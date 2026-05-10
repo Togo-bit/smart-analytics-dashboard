@@ -158,13 +158,17 @@ if "token" not in st.session_state:
                 )
 
                 if res.status_code == 200:
+
+                    posthog.capture(
                     distinct_id=email,
                     event="user_registered",
                     properties={
                         "email": email,
                         "username": username
-                        }
-                    )
+                    }
+                )
+
+    st.success('Registration Successful')
 
                     st.success('Registration Successful')
                 else:
