@@ -6,6 +6,7 @@ import requests
 import plotly.express as px
 import posthog
 import os
+import uuid
 
 st.markdown("""
 <style>
@@ -61,12 +62,25 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 API_URL = os.getenv("API_URL", "https://flask-backend-ygwu.onrender.com/")
-posthog.api_key = os.getenv("POSTHOG_API_KEY")
+posthog.api_key = st.secrets["POSTHOG_API_KEY"]
 posthog.host = "https://app.posthog.com"
 
 st.set_page_config(layout='wide')
+def get_user_id():
+
+    # Logged in user
+    if "user_email" in st.session_state:
+        return st.session_state["user_email"]
+
+    # Anonymous visitor
+    if "guest_id" not in st.session_state:
+        st.session_state["guest_id"] = f"guest_{uuid.uuid4()}"
+
+    return st.session_state["guest_id"]
+
+# Track app opened
 posthog.capture(
-    distinct_id="anonymous_user",
+    distinct_id=get_user_id(),
     event="app_opened"
 )
 
@@ -96,12 +110,22 @@ if "token" not in st.session_state:
                     response_data = res.json()
 
                     if "token" in response_data:
+
+                        st.session_state["user_email"] = email
+                        st.session_state['token'] = response_data['token']
+
+                        posthog.identify(
+                            distinct_id=email,
+                            properties={
+                                "email": email
+                            }
+                        )
+
                         posthog.capture(
                             distinct_id=email,
                             event="user_logged_in"
                         )
 
-                        st.session_state['token'] = response_data['token']
                         st.success("Login Successful")
                         st.rerun()
                     else:
@@ -133,6 +157,14 @@ if "token" not in st.session_state:
                 )
 
                 if res.status_code == 200:
+                    posthog.identify(
+                        distinct_id=email,
+                        properties={
+                            "email": email,
+                            "username": username
+                        }
+                    )
+
                     posthog.capture(
                         distinct_id=email,
                         event="user_registered"
@@ -166,7 +198,7 @@ else:
                 df = pd.read_csv(upload_file)
 
                 posthog.capture(
-                    distinct_id="anonymous_user",
+                    distinct_id=get_user_id(),
                     event="dataset_uploaded",
                     properties={
                         "rows": df.shape[0],
@@ -185,7 +217,7 @@ else:
             except UnicodeDecodeError as e:
 
                 posthog.capture(
-                    distinct_id="anonymous_user",
+                    distinct_id=get_user_id(),
                     event="upload_error",
                     properties={
                         "error": str(e)
@@ -743,7 +775,7 @@ else:
             )
 
             posthog.capture(
-                distinct_id="anonymous_user",
+                distinct_id=get_user_id(),
                 event="dashboard_generated",
                 properties={
                     "chart_type": chart
@@ -767,7 +799,7 @@ else:
                     mime='text/csv'
             ):
                 posthog.capture(
-                    distinct_id="anonymous_user",
+                    distinct_id=get_user_id(),
                     event="analysis_downloaded"
                 )
 
@@ -851,12 +883,16 @@ else:
 
             if st.button('Logout'):
                 posthog.capture(
-                    distinct_id="anonymous_user",
+                    distinct_id=get_user_id(),
                     event="user_logged_out"
                 )
+
                 del st.session_state['token']
+                del st.session_state['user_email']
+
                 if "df" in st.session_state:
                     del st.session_state['df']
+
                 st.rerun()
 
             st.markdown('</div>', unsafe_allow_html=True)
