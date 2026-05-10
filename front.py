@@ -8,6 +8,8 @@ import posthog
 import os
 import uuid
 
+st.set_page_config(layout='wide')
+
 st.markdown("""
 <style>
 .card {
@@ -64,8 +66,6 @@ st.markdown("""
 API_URL = os.getenv("API_URL", "https://flask-backend-ygwu.onrender.com/")
 posthog.project_api_key = st.secrets["POSTHOG_API_KEY"]
 posthog.host = "https://app.posthog.com"
-
-st.set_page_config(layout='wide')
 def get_user_id():
 
     # Logged in user
@@ -160,17 +160,16 @@ if "token" not in st.session_state:
                 if res.status_code == 200:
 
                     posthog.capture(
-                    distinct_id=email,
-                    event="user_registered",
-                    properties={
-                        "email": email,
-                        "username": username
-                    }
-                )
-
-    st.success('Registration Successful')
+                        distinct_id=email,
+                        event="user_registered",
+                        properties={
+                            "email": email,
+                            "username": username
+                        }
+                    )
 
                     st.success('Registration Successful')
+
                 else:
                     st.error(res.json().get("message", "Registration failed"))
 
