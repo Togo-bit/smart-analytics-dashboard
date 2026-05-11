@@ -64,7 +64,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 API_URL = os.getenv("API_URL", "https://flask-backend-ygwu.onrender.com/")
-posthog.project_api_key = st.secrets["general"]["POSTHOG_API_KEY"]
+posthog.api_key = st.secrets["POSTHOG_API_KEY"]
 posthog.host = "https://app.posthog.com"
 def get_user_id():
 
