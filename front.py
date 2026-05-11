@@ -85,7 +85,7 @@ posthog.capture(
 )
 
 st.markdown("""
-# 📊 Smart Analytics Dashboard
+# 📊 SalesPulse
 ### Upload • Analyze • Get Insights
 """)
 
