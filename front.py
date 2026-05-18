@@ -516,12 +516,24 @@ else:
                     )
                 )
 
+                pie_theme_options = [
+                    "Plotly",
+                    "Bold",
+                    "Pastel",
+                    "Dark24",
+                    "Light24",
+                    "Safe",
+                    "Vivid",
+                    "Prism"
+                ]
+
+                if selected_chart["pie_theme"] not in pie_theme_options:
+                    selected_chart["pie_theme"] = "Plotly"
+
                 selected_chart["pie_theme"] = st.sidebar.selectbox(
                     "Pie Theme",
-                    ["Plotly", "Bold", "Pastel", "Dark24",
-                     "Light24", "Safe", "Vivid", "Prism"],
-                    index=["Plotly", "Bold", "Pastel", "Dark24",
-                    "Light24", "Safe", "Vivid", "Prism"].index(
+                    pie_theme_options,
+                    index=pie_theme_options.index(
                         selected_chart["pie_theme"]
                     )
                 )
