@@ -7,6 +7,21 @@ import plotly.express as px
 import posthog
 import os
 import uuid
+from plotly.colors import qualitative
+from ml.preprocessing import (
+    clean_data,
+    prepare_features,
+    detect_problem_type,
+    scale_data
+)
+from ml.training import train_data
+from ml.evaluation import evaluate_model
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+from sklearn.metrics import accuracy_score, r2_score, mean_absolute_error, classification_report
+from pandas.api.types import is_numeric_dtype
 
 st.set_page_config(layout='wide')
 
@@ -180,9 +195,15 @@ if "token" not in st.session_state:
 else:
     headers = {"Authorization": f"Bearer {st.session_state['token']}"}
 
+    if "charts" not in st.session_state:
+        st.session_state["charts"] = []
+
+    if "selected_chart" not in st.session_state:
+        st.session_state["selected_chart"] = None
+
     st.subheader('Upload & Analyze Your Data')
 
-    tab1, tab2, tab3 = st.tabs(["📁 Upload", "📊 Dashboard", "📈 Analysis"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📁 Upload", "📊 Dashboard", "📈 Analysis", "🤖 Predictions"])
 
     with tab1:
 
@@ -204,6 +225,19 @@ else:
                         "columns": df.shape[1]
                     }
                 )
+
+                # CHECK IF NEW FILE IS DIFFERENT
+                new_file_name = upload_file.name
+
+                if "last_uploaded_file" not in st.session_state:
+                    st.session_state["last_uploaded_file"] = ""
+
+                # ONLY RESET WHEN NEW FILE IS UPLOADED
+                if st.session_state["last_uploaded_file"] != new_file_name:
+                    st.session_state["charts"] = []
+                    st.session_state["selected_chart"] = None
+
+                    st.session_state["last_uploaded_file"] = new_file_name
 
                 st.session_state['df'] = df
 
@@ -235,574 +269,693 @@ else:
         else:
             df = st.session_state['df']
 
-            # Sidebar Controls
-            st.sidebar.markdown("## 🎛️ Controls")
+            # ================= ADD NEW CHART =================
 
-            with st.sidebar.expander("Filters"):
-                group_col = st.selectbox('Group by', df.columns)
+            if st.button("➕ Create New Chart"):
+                numeric_columns = df.select_dtypes(include='number').columns
 
-                val_cols = df.select_dtypes(include='number').columns
-                if len(val_cols) == 0:
-                    st.warning("No numeric columns available.")
-                    st.stop()
+                new_chart = {
 
-                numeric_cols = st.multiselect('Select Numeric Columns(Y-axis)',val_cols)
+                    "id": str(uuid.uuid4()),
 
-                if len(numeric_cols) == 0:
-                    st.warning('Please select atleast one numeric column')
-                    st.stop()
+                    # BASIC
+                    "title": "New Chart",
+                    "subtitle": "",
 
-                if group_col in numeric_cols:
-                    st.warning("Group column cannot be one of the selected numeric columns.")
-                    st.stop()
+                    # CHART
+                    "chart_type": "bar",
+                    "group_col": df.columns[0],
+                    "numeric_cols": [numeric_columns[0]] if len(numeric_columns) > 0 else [],
 
-            with st.sidebar.expander("Chart Settings"):
+                    # AGGREGATION
+                    "aggregations": {},
 
-                st.markdown("### 📊 Column-wise Aggregation")
+                    # THEMES
+                    "chart_theme": "Default",
+                    "pie_theme": "Vibrant",
 
-                agg_dict = {}
-                for col in numeric_cols:
-                    agg_dict[col] = st.selectbox(
-                        f"{col}",
-                        ['sum', 'mean', 'max', 'min', 'count'],
-                        key=f"agg_{col}"
+                    # AXIS
+                    "x_label": df.columns[0],
+                    "y_label": "Value",
+
+                    "axis_font_size": 16,
+                    "axis_color": "#FFFFFF",
+                    "axis_bold": True,
+
+                    # HOVER
+                    "hover_bg": "#111827",
+                    "hover_font_color": "#FFFFFF",
+                    "hover_font_size": 14,
+
+                    # FILTERS
+                    "filter_type": "None",
+                    "top_n": 5,
+                    "selected_values": []
+                }
+
+                st.session_state["charts"].append(new_chart)
+
+                st.session_state["selected_chart"] = new_chart["id"]
+
+                st.rerun()
+
+            # ================= SELECTED CHART =================
+
+            selected_chart = None
+
+            for chart_obj in st.session_state["charts"]:
+
+                if chart_obj["id"] == st.session_state["selected_chart"]:
+                    selected_chart = chart_obj
+                    break
+
+            # ================= SIDEBAR CONTROLS =================
+
+            if selected_chart:
+
+                # ================= DEFAULT KEYS =================
+
+                defaults = {
+
+                    "aggregations": {},
+                    "subtitle": "",
+
+                    "chart_theme": "Default",
+                    "pie_theme": "Vibrant",
+
+                    "x_label": selected_chart["group_col"],
+                    "y_label": "Value",
+
+                    "axis_font_size": 16,
+                    "axis_color": "#FFFFFF",
+                    "axis_bold": True,
+
+                    "hover_bg": "#111827",
+                    "hover_font_color": "#FFFFFF",
+                    "hover_font_size": 14,
+
+                    "filter_type": "None",
+                    "top_n": 5,
+                    "selected_values": []
+                }
+
+                for key, value in defaults.items():
+
+                    if key not in selected_chart:
+                        selected_chart[key] = value
+
+                st.sidebar.markdown("## 🎛️ Chart Controls")
+
+                # ================= TITLE =================
+
+                selected_chart["title"] = st.sidebar.text_input(
+                    "Chart Title",
+                    value=selected_chart["title"],
+                    key=f"title_{selected_chart['id']}"
+                )
+
+                selected_chart["subtitle"] = st.sidebar.text_input(
+                    "Chart Subtitle",
+                    value=selected_chart["subtitle"],
+                    key=f"subtitle_{selected_chart['id']}"
+                )
+
+                # ================= CHART ICONS =================
+
+                st.sidebar.markdown("### 📊 Chart Type")
+
+                cols = st.sidebar.columns(5)
+
+                chart_icons = {
+                    "📊": "bar",
+                    "📈": "line",
+                    "📉": "area",
+                    "🥧": "pie",
+                    "📦": "histogram"
+                }
+
+                for idx, (icon, chart_value) in enumerate(chart_icons.items()):
+
+                    with cols[idx]:
+
+                        if st.button(
+                                icon,
+                                key=f"{selected_chart['id']}_{chart_value}",
+                                help=chart_value.capitalize()
+                        ):
+                            selected_chart["chart_type"] = chart_value
+
+                st.sidebar.caption(
+                    f"Selected: {selected_chart['chart_type'].upper()}"
+                )
+
+                # ================= GROUPING =================
+
+                selected_chart["group_col"] = st.sidebar.selectbox(
+                    "Group By",
+                    df.columns,
+                    index=list(df.columns).index(selected_chart["group_col"])
+                )
+
+                numeric_cols_available = [
+
+                    col for col in
+                    df.select_dtypes(include='number').columns
+
+                    if col != selected_chart["group_col"]
+                ]
+
+                # REMOVE INVALID COLUMNS
+                selected_chart["numeric_cols"] = [
+
+                    col for col in selected_chart["numeric_cols"]
+
+                    if col in numeric_cols_available
+                ]
+
+                max_selections = (
+                    1 if selected_chart["chart_type"] == "pie"
+                    else None
+                )
+
+                if (
+                        selected_chart["chart_type"] == "pie"
+                        and len(selected_chart["numeric_cols"]) > 1
+                ):
+                    selected_chart["numeric_cols"] = [
+                        selected_chart["numeric_cols"][0]
+                    ]
+
+                selected_chart["numeric_cols"] = st.sidebar.multiselect(
+                    "Numeric Columns",
+                    numeric_cols_available,
+                    default=selected_chart["numeric_cols"],
+                    max_selections=max_selections
+                )
+
+                if selected_chart["chart_type"] == "pie":
+                    st.sidebar.caption(
+                        "🥧 Pie charts support only one numeric column."
                     )
 
-                agg_text = ", ".join([f"{col} ({agg_dict[col]})" for col in numeric_cols])
+                # REMOVE GROUP COLUMN FROM NUMERIC COLUMNS
+                if selected_chart["group_col"] in selected_chart["numeric_cols"]:
+                    selected_chart["numeric_cols"].remove(
+                        selected_chart["group_col"]
+                    )
 
-                st.markdown("### 📊 Chart Type")
+                    st.sidebar.warning(
+                        "Group column cannot also be a numeric column"
+                    )
 
-                cols = st.columns(5)
+                if len(selected_chart["numeric_cols"]) == 0:
+                    st.sidebar.warning(
+                        "Please select atleast one numeric column"
+                    )
 
+                # ================= PER COLUMN AGGREGATION =================
 
-                def chart_btn(icon, value, help_text):
-                    st.markdown('<div class="chart-buttons">', unsafe_allow_html=True)
+                st.sidebar.markdown("### 📊 Column Aggregations")
 
-                    if st.button(icon, key=value, help=help_text, use_container_width=True):
-                        st.session_state["chart_type"] = value
+                aggregation_options = ["sum", "mean", "max", "min", "count"]
 
-                    st.markdown('</div>', unsafe_allow_html=True)
+                # Initialize missing aggregations
+                for col in selected_chart["numeric_cols"]:
 
+                    if col not in selected_chart["aggregations"]:
+                        selected_chart["aggregations"][col] = "sum"
 
-                with cols[0]:
-                    chart_btn("📈", "line", "Line Chart")
-                with cols[1]:
-                    chart_btn("📊", "bar", "Bar Chart")
-                with cols[2]:
-                    chart_btn("📉", "area", "Area Chart")
-                with cols[3]:
-                    chart_btn("🥧", "pie", "Pie Chart")
-                with cols[4]:
-                    chart_btn("📦", "histogram", "Histogram")
+                # Remove deleted columns from aggregation dict
+                selected_chart["aggregations"] = {
 
-                chart = st.session_state.get("chart_type", "bar")
+                    col: agg
+                    for col, agg in selected_chart["aggregations"].items()
+                    if col in selected_chart["numeric_cols"]
+                }
 
-                st.caption(f"Selected: {chart.upper()}")
+                # UI for each column
+                for col in selected_chart["numeric_cols"]:
+                    selected_chart["aggregations"][col] = st.sidebar.selectbox(
+                        f"{col} Aggregation",
+                        aggregation_options,
+                        index=aggregation_options.index(
+                            selected_chart["aggregations"][col]
+                        ),
+                        key=f"agg_{selected_chart['id']}_{col}"
+                    )
 
-                st.markdown("###  Chart Title")
+                # ================= THEMES =================
 
-                custom_title = st.text_input(
-                    "Chart Title",
-                    value=f"{agg_text} by {group_col}"
+                st.sidebar.markdown("### 🎨 Themes")
+
+                selected_chart["chart_theme"] = st.sidebar.selectbox(
+                    "Chart Theme",
+                    ["Default", "Vibrant", "Pastel", "Neon"],
+                    index=["Default", "Vibrant", "Pastel", "Neon"].index(
+                        selected_chart["chart_theme"]
+                    )
                 )
 
-                custom_subtitle = st.text_input(
-                    "Chart Subtitle (optional)",
-                    value=""
+                selected_chart["pie_theme"] = st.sidebar.selectbox(
+                    "Pie Theme",
+                    ["Plotly", "Bold", "Pastel", "Dark24",
+                     "Light24", "Safe", "Vivid", "Prism"],
+                    index=["Plotly", "Bold", "Pastel", "Dark24",
+                    "Light24", "Safe", "Vivid", "Prism"].index(
+                        selected_chart["pie_theme"]
+                    )
                 )
 
-                st.markdown("###  Chart Styling")
+                # ================= AXIS =================
 
-                chart_theme = st.selectbox(
-                    "Chart Color Theme",
-                    [
-                        "Default",
-                        "Vibrant",
-                        "Pastel",
-                        "Neon",
-                        "Ocean",
-                        "Sunset"
-                    ]
+                st.sidebar.markdown("### 🧭 Axis Styling")
+
+                selected_chart["x_label"] = st.sidebar.text_input(
+                    "X-axis Label",
+                    value=selected_chart["x_label"]
                 )
 
-                axis_font_size = st.slider(
+                selected_chart["y_label"] = st.sidebar.text_input(
+                    "Y-axis Label",
+                    value=selected_chart["y_label"]
+                )
+
+                selected_chart["axis_font_size"] = st.sidebar.slider(
                     "Axis Font Size",
                     10,
                     30,
-                    16
+                    selected_chart["axis_font_size"]
                 )
 
-                axis_color = st.color_picker(
-                    "Axis Label Color",
-                    "#FFFFFF"
+                selected_chart["axis_color"] = st.sidebar.color_picker(
+                    "Axis Color",
+                    selected_chart["axis_color"]
                 )
 
-                axis_bold = st.checkbox(
+                selected_chart["axis_bold"] = st.sidebar.checkbox(
                     "Bold Axis Labels",
-                    value=True
+                    value=selected_chart["axis_bold"]
                 )
 
-                x_label = st.text_input(
-                    "X-axis Label",
-                    value=group_col
-                )
+                # ================= HOVER =================
 
-                y_label = st.text_input(
-                    "Y-axis Label",
-                    value=", ".join(numeric_cols)
-                )
+                st.sidebar.markdown("### ✨ Hover Styling")
 
-                pie_theme = st.selectbox(
-                    "Pie Chart Theme",
-                    [
-                        "Vibrant",
-                        "Pastel",
-                        "Neon",
-                        "Dark",
-                        "Sunset",
-                        "Ocean"
-                    ]
-                )
-
-                st.markdown("### ✨ Hover Styling")
-
-                hover_bg = st.color_picker(
+                selected_chart["hover_bg"] = st.sidebar.color_picker(
                     "Hover Background",
-                    "#111827"
+                    selected_chart["hover_bg"]
                 )
 
-                hover_font_color = st.color_picker(
+                selected_chart["hover_font_color"] = st.sidebar.color_picker(
                     "Hover Text Color",
-                    "#FFFFFF"
+                    selected_chart["hover_font_color"]
                 )
 
-                hover_font_size = st.slider(
+                selected_chart["hover_font_size"] = st.sidebar.slider(
                     "Hover Font Size",
                     10,
                     24,
-                    14
+                    selected_chart["hover_font_size"]
                 )
 
-            with st.sidebar.expander("🔍 Advanced Filters"):
+                # ================= FILTERS =================
 
-                filter_type = st.selectbox(
+                st.sidebar.markdown("### 🔍 Advanced Filters")
+
+                selected_chart["filter_type"] = st.sidebar.selectbox(
                     "Filter Type",
-                    ["None", "Top N", "Bottom N", "Include Values"],
-                    key="filter_type"
+                    ["None", "Top N", "Bottom N"],
+                    index=["None", "Top N", "Bottom N"].index(
+                        selected_chart["filter_type"]
+                    )
                 )
 
-                sort_col = None
-                top_n = None
-                selected_values = None
-
-                if filter_type in ["Top N", "Bottom N"]:
-                    sort_col = st.selectbox(
-                        "Sort By Column",
-                        numeric_cols,
-                        key="sort_col_select"
-                    )
-
-                    top_n = st.slider(
+                if selected_chart["filter_type"] in ["Top N", "Bottom N"]:
+                    selected_chart["top_n"] = st.sidebar.slider(
                         "Select N",
-                        1, 20, 5,
-                        key="top_n_slider"
+                        1,
+                        20,
+                        selected_chart["top_n"]
                     )
 
-                elif filter_type == "Include Values":
-                    selected_values = st.multiselect(
-                        f"Select {group_col} values",
-                        sorted(df[group_col].dropna().unique()),
-                        key="include_values_multiselect"
-                    )
-
-            # Aggregation
-            result = df.groupby(group_col).agg(agg_dict)
-
-            # Reset index for filtering
-            result = result.reset_index()
-
-            # ================= APPLY FILTER =================
-            if filter_type == "Top N" and sort_col:
-                result = result.sort_values(by=sort_col, ascending=False).head(top_n)
-
-            elif filter_type == "Bottom N" and sort_col:
-                result = result.sort_values(by=sort_col, ascending=True).head(top_n)
-
-            elif filter_type == "Include Values":
-                if selected_values:
-                    result = result[result[group_col].isin(selected_values)]
-
-            result = result.set_index(group_col)
-
-            # ===================== KPI CARD =====================
-            kpi_col = st.selectbox("Select KPI Column", val_cols)
-
-            total = df[kpi_col].sum()
-            avg = df[kpi_col].mean()
-            max_val = df[kpi_col].max()
-
-            st.markdown('<div class="card">', unsafe_allow_html=True)
-
-            st.subheader("📌 Key Metrics")
-
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Total", f"{total:,.2f}")
-            col2.metric("Average", f"{avg:.2f}")
-            col3.metric("Max", f"{max_val:.2f}")
-
-            st.markdown('</div>', unsafe_allow_html=True)
-
-            # ===================== GROWTH CARD =====================
-            st.markdown('<div class="card">', unsafe_allow_html=True)
-
-            st.subheader("📈 Growth Analysis")
-
-            date_col = st.selectbox(
-                "Select Date Column (optional)",
-                ["None"] + list(df.columns)
-            )
-
-            if date_col == "None":
-                st.info("Select a date column to calculate growth")
-            else:
-                try:
-                    df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
-                    df[kpi_col] = pd.to_numeric(df[kpi_col], errors='coerce')
-
-                    df_clean = df.dropna(subset=[date_col, kpi_col])
-
-                    if df_clean.empty:
-                        st.warning("Invalid date column or insufficient data")
-                    else:
-                        df_clean = df_clean.sort_values(date_col)
-
-                        growth_series = df_clean[kpi_col].pct_change().dropna()
-
-                        if len(growth_series) == 0:
-                            st.warning("Not enough data for growth")
-                        else:
-                            avg_growth = growth_series.mean() * 100
-                            st.metric("Avg Growth %", f"{avg_growth:.2f}%")
-
-                except:
-                    st.info("Growth not available")
-
-            st.markdown('</div>', unsafe_allow_html=True)
-
-            # ===================== CHART CARD =====================
-            st.markdown('<div class="card">', unsafe_allow_html=True)
+            # ================= MULTI CHART DASHBOARD =================
 
             color_palettes = {
 
-                "Default": [
-                    "#636EFA",
-                    "#EF553B",
-                    "#00CC96",
-                    "#AB63FA",
-                    "#FFA15A"
-                ],
+                "Default": ["#636EFA", "#EF553B", "#00CC96"],
 
-                "Vibrant": [
-                    "#FF6B6B",
-                    "#4ECDC4",
-                    "#FFE66D",
-                    "#1A535C",
-                    "#FF9F1C"
-                ],
+                "Vibrant": ["#FF6B6B", "#4ECDC4", "#FFE66D"],
 
-                "Pastel": [
-                    "#A8DADC",
-                    "#FFCAD4",
-                    "#CDB4DB",
-                    "#BDE0FE",
-                    "#FFC8DD"
-                ],
+                "Pastel": ["#A8DADC", "#FFCAD4", "#CDB4DB"],
 
-                "Neon": [
-                    "#00F5D4",
-                    "#F15BB5",
-                    "#9B5DE5",
-                    "#FEE440",
-                    "#00BBF9"
-                ],
-
-                "Ocean": [
-                    "#03045E",
-                    "#0077B6",
-                    "#00B4D8",
-                    "#90E0EF",
-                    "#CAF0F8"
-                ],
-
-                "Sunset": [
-                    "#FF5E5B",
-                    "#D7263D",
-                    "#F49D37",
-                    "#140F2D",
-                    "#3F88C5"
-                ]
+                "Neon": ["#00F5D4", "#F15BB5", "#9B5DE5"]
             }
 
-            pie_colors = {
+            pie_palettes = {
 
-                "Vibrant": [
-                    "#FF6B6B",
-                    "#4ECDC4",
-                    "#FFE66D",
-                    "#1A535C",
-                    "#FF9F1C"
-                ],
-
-                "Pastel": [
-                    "#A8DADC",
-                    "#F1FAEE",
-                    "#FFCAD4",
-                    "#CDB4DB",
-                    "#BDE0FE"
-                ],
-
-                "Neon": [
-                    "#00F5D4",
-                    "#F15BB5",
-                    "#9B5DE5",
-                    "#FEE440",
-                    "#00BBF9"
-                ],
-
-                "Dark": [
-                    "#264653",
-                    "#2A9D8F",
-                    "#E9C46A",
-                    "#F4A261",
-                    "#E76F51"
-                ],
-
-                "Sunset": [
-                    "#FF5E5B",
-                    "#D7263D",
-                    "#F49D37",
-                    "#140F2D",
-                    "#3F88C5"
-                ],
-
-                "Ocean": [
-                    "#03045E",
-                    "#0077B6",
-                    "#00B4D8",
-                    "#90E0EF",
-                    "#CAF0F8"
-                ]
+                "Plotly": qualitative.Plotly,
+                "Bold": qualitative.Bold,
+                "Pastel": qualitative.Pastel,
+                "Dark24": qualitative.Dark24,
+                "Light24": qualitative.Light24,
+                "Safe": qualitative.Safe,
+                "Vivid": qualitative.Vivid,
+                "Prism": qualitative.Prism
             }
 
-            st.subheader(f"📊 {custom_title}")
+            # ================= FIX OLD CHART OBJECTS =================
 
-            if custom_subtitle:
-                st.caption(custom_subtitle)
+            for chart_obj in st.session_state["charts"]:
 
-            result = result.reset_index().set_index(group_col)
+                if "aggregations" not in chart_obj:
+                    chart_obj["aggregations"] = {}
 
-            plot_data = result.reset_index()
+                if "subtitle" not in chart_obj:
+                    chart_obj["subtitle"] = ""
 
-            if chart == 'line':
+                if "chart_theme" not in chart_obj:
+                    chart_obj["chart_theme"] = "Default"
 
-                fig = px.line(
-                    plot_data,
-                    x=group_col,
-                    y=numeric_cols
+                if "pie_theme" not in chart_obj:
+                    chart_obj["pie_theme"] = "Vibrant"
+
+                if "x_label" not in chart_obj:
+                    chart_obj["x_label"] = chart_obj["group_col"]
+
+                if "y_label" not in chart_obj:
+                    chart_obj["y_label"] = "Value"
+
+                if "axis_font_size" not in chart_obj:
+                    chart_obj["axis_font_size"] = 16
+
+                if "axis_color" not in chart_obj:
+                    chart_obj["axis_color"] = "#FFFFFF"
+
+                if "axis_bold" not in chart_obj:
+                    chart_obj["axis_bold"] = True
+
+                if "hover_bg" not in chart_obj:
+                    chart_obj["hover_bg"] = "#111827"
+
+                if "hover_font_color" not in chart_obj:
+                    chart_obj["hover_font_color"] = "#FFFFFF"
+
+                if "hover_font_size" not in chart_obj:
+                    chart_obj["hover_font_size"] = 14
+
+                if "filter_type" not in chart_obj:
+                    chart_obj["filter_type"] = "None"
+
+                if "top_n" not in chart_obj:
+                    chart_obj["top_n"] = 5
+
+            charts = st.session_state["charts"]
+
+            col1, col2 = st.columns(2)
+
+            for i, chart_obj in enumerate(charts):
+
+                group_col = chart_obj["group_col"]
+                numeric_cols = chart_obj["numeric_cols"]
+                chart_type = chart_obj["chart_type"]
+
+                has_numeric = len(numeric_cols) > 0
+
+                # ================= EMPTY STATE =================
+
+                if not has_numeric:
+
+                    container = col1 if i % 2 == 0 else col2
+
+                    with container:
+
+                        st.markdown(
+                            '<div class="card">',
+                            unsafe_allow_html=True
+                        )
+
+                        # ACTION BUTTONS
+                        col_edit, col_delete = st.columns(2)
+
+                        with col_edit:
+
+                            if st.button(
+                                    "✏️ Edit",
+                                    key=f"edit_empty_{chart_obj['id']}"
+                            ):
+                                st.session_state["selected_chart"] = chart_obj["id"]
+                                st.rerun()
+
+                        with col_delete:
+
+                            if st.button(
+                                    "🗑️ Delete",
+                                    key=f"delete_empty_{chart_obj['id']}"
+                            ):
+                                st.session_state["charts"] = [
+
+                                    c for c in st.session_state["charts"]
+
+                                    if c["id"] != chart_obj["id"]
+                                ]
+
+                                st.rerun()
+
+                        st.subheader(chart_obj["title"])
+
+                        st.warning(
+                            "⚠️ Please select at least one numeric column"
+                        )
+
+                        st.markdown(
+                            '</div>',
+                            unsafe_allow_html=True
+                        )
+
+                    continue
+
+                # ================= AGGREGATION =================
+
+                agg_dict = {
+
+                    col: chart_obj["aggregations"].get(col, "sum")
+                    for col in numeric_cols
+                }
+
+                plot_data = (
+                    df.groupby(group_col, as_index=False)
+                    .agg(agg_dict)
                 )
 
-            elif chart == 'bar':
+                # ================= FILTERS =================
 
-                fig = px.bar(
-                    plot_data,
-                    x=group_col,
-                    y=numeric_cols
+                if chart_obj["filter_type"] == "Top N":
+
+                    plot_data = plot_data.sort_values(
+                        by=numeric_cols[0],
+                        ascending=False
+                    ).head(chart_obj["top_n"])
+
+                elif chart_obj["filter_type"] == "Bottom N":
+
+                    plot_data = plot_data.sort_values(
+                        by=numeric_cols[0],
+                        ascending=True
+                    ).head(chart_obj["top_n"])
+
+                # ================= CHART TYPES =================
+
+                if chart_type == "bar":
+
+                    fig = px.bar(
+                        plot_data,
+                        x=group_col,
+                        y=numeric_cols
+                    )
+
+                elif chart_type == "line":
+
+                    fig = px.line(
+                        plot_data,
+                        x=group_col,
+                        y=numeric_cols
+                    )
+
+                elif chart_type == "area":
+
+                    fig = px.area(
+                        plot_data,
+                        x=group_col,
+                        y=numeric_cols
+                    )
+
+                elif chart_type == "pie":
+
+                    fig = px.pie(
+                        plot_data,
+                        names=group_col,
+                        values=numeric_cols[0],
+                        color_discrete_sequence=
+                        pie_palettes[chart_obj["pie_theme"]]
+                    )
+
+                elif chart_type == "histogram":
+
+                    fig = px.histogram(
+                        df,
+                        x=numeric_cols[0]
+                    )
+
+                # ================= COLORS =================
+
+                if chart_type != "pie":
+
+                    colors = color_palettes[
+                        chart_obj["chart_theme"]
+                    ]
+
+                    for idx, trace in enumerate(fig.data):
+
+                        color = colors[idx % len(colors)]
+
+                        if hasattr(trace, "marker"):
+                            trace.marker.color = color
+
+                        if hasattr(trace, "line"):
+                            trace.line.color = color
+
+                # ================= FONT =================
+
+                font_family = (
+                    "Arial Black"
+                    if chart_obj["axis_bold"]
+                    else "Arial"
                 )
 
-            elif chart == 'area':
-
-                fig = px.area(
-                    plot_data,
-                    x=group_col,
-                    y=numeric_cols
-                )
-            elif chart == 'pie':
-                if len(numeric_cols) > 1:
-                    st.warning('Pie Chart only supports one column, Using first selected')
-
-                pie_col = numeric_cols[0]
-
-                pie_data = df.groupby(group_col)[pie_col].agg(agg_dict[pie_col]).reset_index()
-                fig = px.pie(
-                    pie_data,
-                    names=group_col,
-                    values=pie_col,
-                    color_discrete_sequence=pie_colors[pie_theme]
-                )
-            elif chart == 'histogram':
-                fig = px.histogram(
-                    df,
-                    x=numeric_cols,
-                    barmode='overlay',
-                    title=f"Distrinution of {numeric_cols}"
-                )
-
-            # ================= CHART STYLING =================
-
-            font_family = "Arial Black" if axis_bold else "Arial"
-
-            if chart == "pie":
+                # ================= HOVER =================
 
                 fig.update_layout(
+
+                    template="plotly_dark",
+
+                    xaxis_title=chart_obj["x_label"],
+                    yaxis_title=chart_obj["y_label"],
 
                     hoverlabel=dict(
-                        bgcolor=hover_bg,
-                        font_size=hover_font_size,
-                        font_color=hover_font_color,
-                        font_family="Arial",
-                        bordercolor="#334155"
+                        bgcolor=chart_obj["hover_bg"],
+                        font_size=chart_obj["hover_font_size"],
+                        font_color=chart_obj["hover_font_color"]
                     ),
 
-                    template="plotly_dark"
-                )
-            else:
-                fig.update_layout(
-                    xaxis_title=x_label,
-                    yaxis_title=y_label,
-
                     xaxis=dict(
+
                         title_font=dict(
-                            size=axis_font_size,
-                            color=axis_color,
+                            size=chart_obj["axis_font_size"],
+                            color=chart_obj["axis_color"],
                             family=font_family
                         ),
+
                         tickfont=dict(
-                            size=axis_font_size,
-                            color=axis_color
+                            size=chart_obj["axis_font_size"],
+                            color=chart_obj["axis_color"]
                         )
                     ),
 
                     yaxis=dict(
+
                         title_font=dict(
-                            size=axis_font_size,
-                            color=axis_color,
+                            size=chart_obj["axis_font_size"],
+                            color=chart_obj["axis_color"],
                             family=font_family
                         ),
-                        tickfont=dict(
-                            size=axis_font_size,
-                            color=axis_color
-                        )
-                    ),
 
-                    template="plotly_dark"
+                        tickfont=dict(
+                            size=chart_obj["axis_font_size"],
+                            color=chart_obj["axis_color"]
+                        )
+                    )
                 )
 
-                # ================= APPLY COLORS =================
+                # ================= HOVER TEMPLATES =================
 
-                if chart != "pie":
-
-                    colors = color_palettes[chart_theme]
-
-                    for i, trace in enumerate(fig.data):
-
-                        color = colors[i % len(colors)]
-
-                        if chart == "line":
-
-                            trace.line.color = color
-                            trace.line.width = 3
-
-                        elif chart == "area":
-
-                            trace.line.color = color
-                            trace.fillcolor = color
-
-                        else:
-
-                            trace.marker.color = color
-
-                # ================= HOVER EFFECT =================
-
-                # ================= HOVER EFFECT =================
-
-                if chart in ["line", "bar", "area"]:
+                if chart_type in ["line", "bar", "area"]:
 
                     fig.update_traces(
 
                         hovertemplate=
-                        "<b>📍 %{x}</b><br>" +
-                        "📊 Value: %{y:,.2f}<br>" +
+                        "<b>%{x}</b><br>" +
+                        "Value: %{y:,.2f}<br>" +
                         "<extra></extra>"
                     )
 
-                elif chart == "pie":
+                elif chart_type == "pie":
 
                     fig.update_traces(
 
                         hovertemplate=
                         "<b>%{label}</b><br>" +
-                        "📊 Value: %{value:,.2f}<br>" +
-                        "📈 Percentage: %{percent}<br>" +
+                        "Value: %{value:,.2f}<br>" +
+                        "Percent: %{percent}<br>" +
                         "<extra></extra>"
                     )
 
-                elif chart == "histogram":
+                # ================= CARD =================
 
-                    fig.update_traces(
+                container = col1 if i % 2 == 0 else col2
 
-                        hovertemplate=
-                        "<b>Range:</b> %{x}<br>" +
-                        "📊 Count: %{y}<br>" +
-                        "<extra></extra>"
+                with container:
+
+                    st.markdown(
+                        '<div class="card">',
+                        unsafe_allow_html=True
                     )
 
-                # APPLY HOVER STYLING
-                fig.update_layout(
+                    # ================= ACTION BUTTONS =================
 
-                    hoverlabel=dict(
-                        bgcolor=hover_bg,
-                        font_size=hover_font_size,
-                        font_color=hover_font_color,
-                        font_family="Arial"
+                    col_edit, col_delete = st.columns(2)
+
+                    with col_edit:
+
+                        if st.button(
+                                "✏️ Edit",
+                                key=f"edit_btn_{i}_{chart_obj['id']}"
+                        ):
+                            st.session_state["selected_chart"] = chart_obj["id"]
+                            st.rerun()
+
+                    with col_delete:
+
+                        if st.button(
+                                "🗑️ Delete",
+                                key=f"delete_btn_{i}_{chart_obj['id']}"
+                        ):
+
+                            st.session_state["charts"] = [
+
+                                c for c in st.session_state["charts"]
+
+                                if c["id"] != chart_obj["id"]
+                            ]
+
+                            # RESET SELECTED CHART
+                            if st.session_state["selected_chart"] == chart_obj["id"]:
+                                st.session_state["selected_chart"] = None
+
+                            st.rerun()
+
+                    # ================= TITLE =================
+
+                    st.subheader(chart_obj["title"])
+
+                    if chart_obj["subtitle"]:
+                        st.caption(chart_obj["subtitle"])
+
+                    st.plotly_chart(
+                        fig,
+                        use_container_width=True,
+                        key=f"chart_{chart_obj['id']}"
                     )
-                )
 
-                # SHOW CHART
-            st.plotly_chart(
-                fig,
-                use_container_width=True
-            )
-
-            posthog.capture(
-                distinct_id=get_user_id(),
-                event="dashboard_generated",
-                properties={
-                    "chart_type": chart
-                }
-            )
-
-            st.markdown('</div>', unsafe_allow_html=True)
-
-            # ===================== DOWNLOAD CARD =====================
-            st.markdown('<div class="card">', unsafe_allow_html=True)
-
-            st.subheader("Download Analysis")
-
-            results_df = result.reset_index()
-            csv = results_df.to_csv(index=False).encode('utf-8')
-
-            if st.download_button(
-                    label='Download Aggregated Results',
-                    data=csv,
-                    file_name='analysis_output.csv',
-                    mime='text/csv'
-            ):
-                posthog.capture(
-                    distinct_id=get_user_id(),
-                    event="analysis_downloaded"
-                )
-
-            st.markdown('</div>', unsafe_allow_html=True)
 
     with tab3:
         if "df" not in st.session_state:
@@ -895,3 +1048,352 @@ else:
                 st.rerun()
 
             st.markdown('</div>', unsafe_allow_html=True)
+
+    with tab4:
+
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+
+        st.subheader("🤖 Machine Learning Predictions")
+
+        if "df" not in st.session_state:
+
+            st.info("📁 Upload a dataset first")
+
+        else:
+
+            df = st.session_state["df"].copy()
+
+            # =========================
+            # TARGET COLUMN
+            # =========================
+
+            target_column = st.selectbox(
+                "🎯 Select Target Column",
+                df.columns
+            )
+
+            # =========================
+            # DETECT PROBLEM TYPE
+            # =========================
+
+            if is_numeric_dtype(df[target_column]):
+
+                unique_values = df[target_column].nunique()
+
+                if unique_values <= 15:
+                    problem_type = "classification"
+                else:
+                    problem_type = "regression"
+
+            else:
+
+                problem_type = "classification"
+
+            st.info(f"Detected Problem Type: {problem_type}")
+
+            # =========================
+            # MODEL SELECTION
+            # =========================
+
+            if problem_type == "regression":
+
+                model_name = st.selectbox(
+                    "🧠 Select Model",
+                    [
+                        "linear_regression",
+                        "decision_tree"
+                    ]
+                )
+
+            else:
+
+                model_name = st.selectbox(
+                    "🧠 Select Model",
+                    [
+                        "logistic_regression",
+                        "decision_tree"
+                    ]
+                )
+
+            # =========================
+            # TRAIN BUTTON
+            # =========================
+
+            if st.button("🚀 Train Model"):
+
+                # =========================
+                # CLEANING
+                # =========================
+
+                numeric_cols = df.select_dtypes(
+                    include=['int64', 'float64']
+                ).columns
+
+                categorical_cols = df.select_dtypes(
+                    include=['object']
+                ).columns
+
+                for col in numeric_cols:
+                    df[col] = df[col].fillna(df[col].mean())
+
+                for col in categorical_cols:
+                    df[col] = df[col].fillna(df[col].mode()[0])
+
+                # =========================
+                # REMOVE HIGH CARDINALITY
+                # =========================
+
+                high_cardinality_cols = []
+
+                for col in categorical_cols:
+
+                    if (
+                            df[col].nunique() > 50
+                            and col != target_column
+                    ):
+                        high_cardinality_cols.append(col)
+
+                if len(high_cardinality_cols) > 0:
+                    df = df.drop(
+                        columns=high_cardinality_cols
+                    )
+
+                    st.warning(
+                        f"Dropped High Cardinality Columns: "
+                        f"{high_cardinality_cols}"
+                    )
+
+                # =========================
+                # FEATURES
+                # =========================
+
+                X = df.drop(columns=[target_column])
+
+                y = df[target_column]
+
+                X = pd.get_dummies(
+                    X,
+                    drop_first=True
+                )
+
+                # =========================
+                # SPLIT
+                # =========================
+
+                X_train, X_test, y_train, y_test = train_test_split(
+                    X,
+                    y,
+                    test_size=0.2,
+                    random_state=42
+                )
+
+                # =========================
+                # SCALE
+                # =========================
+
+                scaler = StandardScaler()
+
+                X_train_scaled = scaler.fit_transform(
+                    X_train
+                )
+
+                X_test_scaled = scaler.transform(
+                    X_test
+                )
+
+                # =========================
+                # MODEL
+                # =========================
+
+                if problem_type == "regression":
+
+                    if model_name == "linear_regression":
+
+                        model = LinearRegression()
+
+                    else:
+
+                        model = DecisionTreeRegressor(
+                            random_state=42
+                        )
+
+                else:
+
+                    if model_name == "logistic_regression":
+
+                        model = LogisticRegression(
+                            max_iter=1000
+                        )
+
+                    else:
+
+                        model = DecisionTreeClassifier(
+                            random_state=42
+                        )
+
+                # =========================
+                # TRAIN
+                # =========================
+
+                model.fit(
+                    X_train_scaled,
+                    y_train
+                )
+
+                # =========================
+                # PREDICTIONS
+                # =========================
+
+                y_pred = model.predict(
+                    X_test_scaled
+                )
+
+                # =========================
+                # STORE MODEL
+                # =========================
+
+                st.session_state["trained_model"] = model
+
+                st.session_state["feature_columns"] = X.columns.tolist()
+
+                st.session_state["scaler"] = scaler
+
+                st.session_state["problem_type"] = problem_type
+
+                st.session_state["target_column"] = target_column
+
+                st.session_state["training_df"] = df
+
+                # =========================
+                # RESULTS
+                # =========================
+
+                st.success("✅ Model Trained Successfully")
+
+                if problem_type == "regression":
+
+                    r2 = r2_score(
+                        y_test,
+                        y_pred
+                    )
+
+                    mae = mean_absolute_error(
+                        y_test,
+                        y_pred
+                    )
+
+                    col1, col2 = st.columns(2)
+
+                    col1.metric(
+                        "R2 Score",
+                        f"{r2:.4f}"
+                    )
+
+                    col2.metric(
+                        "MAE",
+                        f"{mae:.2f}"
+                    )
+
+                else:
+
+                    accuracy = accuracy_score(
+                        y_test,
+                        y_pred
+                    )
+
+                    st.metric(
+                        "Accuracy",
+                        f"{accuracy:.4f}"
+                    )
+
+            # =========================
+            # USER PREDICTION SECTION
+            # =========================
+
+            if "trained_model" in st.session_state:
+
+                st.markdown("---")
+
+                st.subheader("🔮 Predict New Data")
+
+                model = st.session_state["trained_model"]
+
+                scaler = st.session_state["scaler"]
+
+                feature_columns = st.session_state["feature_columns"]
+
+                training_df = st.session_state["training_df"]
+
+                target_column = st.session_state["target_column"]
+
+                user_inputs = {}
+
+                input_columns = [
+
+                    col for col in training_df.columns
+
+                    if col != target_column
+                ]
+
+                # =========================
+                # INPUTS
+                # =========================
+
+                for col in input_columns:
+
+                    if is_numeric_dtype(training_df[col]):
+
+                        user_inputs[col] = st.number_input(
+                            col,
+                            value=float(
+                                training_df[col].mean()
+                            ),
+                            key=f"input_{col}"
+                        )
+
+                    else:
+
+                        user_inputs[col] = st.selectbox(
+                            col,
+                            training_df[col].astype(str).unique(),
+                            key=f"input_{col}"
+                        )
+
+                # =========================
+                # PREDICT BUTTON
+                # =========================
+
+                if st.button("🎯 Predict"):
+                    input_df = pd.DataFrame(
+                        [user_inputs]
+                    )
+
+                    input_df = pd.get_dummies(
+                        input_df,
+                        drop_first=True
+                    )
+
+                    # ALIGN FEATURES
+
+                    input_df = input_df.reindex(
+                        columns=feature_columns,
+                        fill_value=0
+                    )
+
+                    # SCALE
+
+                    input_scaled = scaler.transform(
+                        input_df
+                    )
+
+                    # PREDICT
+
+                    prediction = model.predict(
+                        input_scaled
+                    )
+
+                    st.success(
+                        f"Prediction Result: {prediction[0]}"
+                    )
+
+        st.markdown('</div>', unsafe_allow_html=True)
