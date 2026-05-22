@@ -8,6 +8,7 @@ import jwt, datetime
 import os
 from authlib.integrations.flask_client import OAuth
 from flask import session, jsonify
+from flask_session import Session
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -16,6 +17,10 @@ app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = "None"
 
 app.secret_key = app.config['SECRET_KEY']
+
+app.config["SESSION_TYPE"] = "filesystem"
+
+Session(app)
 
 oauth = OAuth(app)
 
