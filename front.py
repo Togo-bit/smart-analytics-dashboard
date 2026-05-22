@@ -172,7 +172,7 @@ if "token" not in st.session_state:
 
         st.markdown("### Or Login with Google")
 
-        google_login_url = f"{API_URL}/google/login"
+        google_login_url = f"{API_URL}google/login"
 
         st.markdown(
             f"""
