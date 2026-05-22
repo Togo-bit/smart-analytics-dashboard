@@ -12,6 +12,9 @@ from flask import session, jsonify
 app = Flask(__name__)
 app.config.from_object(Config)
 
+app.config['SESSION_COOKIE_SECURE'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = "None"
+
 app.secret_key = app.config['SECRET_KEY']
 
 oauth = OAuth(app)
