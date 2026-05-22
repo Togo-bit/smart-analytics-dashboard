@@ -128,8 +128,8 @@ def google_callback():
 
     # REDIRECT TO STREAMLIT
     return redirect(
-        f"http://localhost:8501/?token={jwt_token}&email={email}"
-    )
+    f"https://smart-analytics-dashboard-wbaguwtbf6getkfpafjvhm.streamlit.app/?token={jwt_token}&email={email}"
+)
 
 if __name__ == '__main__':
     app.run(debug=True)
