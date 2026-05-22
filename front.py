@@ -8,6 +8,7 @@ import posthog
 import os
 import uuid
 from plotly.colors import qualitative
+from urllib.parse import quote_plus
 from ml.preprocessing import (
     clean_data,
     prepare_features,
@@ -24,6 +25,19 @@ from sklearn.metrics import accuracy_score, r2_score, mean_absolute_error, class
 from pandas.api.types import is_numeric_dtype
 
 st.set_page_config(layout='wide')
+
+query_params = st.query_params
+
+if "token" in query_params:
+
+    st.session_state["token"] = query_params["token"]
+    st.session_state["user_email"] = query_params["email"]
+
+    st.success("Google Login Successful")
+
+    st.query_params.clear()
+
+    st.rerun()
 
 st.markdown("""
 <style>
@@ -154,6 +168,32 @@ if "token" not in st.session_state:
                 st.error("Server not reachable")
                 st.stop()
 
+        st.markdown("---")
+
+        st.markdown("### Or Login with Google")
+
+        google_login_url = f"{API_URL}/google/login"
+
+        st.markdown(
+            f"""
+            <a href="{google_login_url}" target="_self">
+                <button style="
+                    background-color:#4285F4;
+                    color:white;
+                    border:none;
+                    padding:12px 20px;
+                    border-radius:8px;
+                    font-size:16px;
+                    cursor:pointer;
+                    width:100%;
+                ">
+                    🔵 Continue with Google
+                </button>
+            </a>
+            """,
+            unsafe_allow_html=True
+        )
+
     elif page == 'Register':
         st.subheader('Register')
 
@@ -211,55 +251,216 @@ else:
 
         st.subheader("📁 Upload & Preview Data")
 
-        upload_file = st.file_uploader('Upload a CSV file', type=['csv'])
+        # =========================
+        # DATA SOURCE
+        # =========================
 
-        if upload_file:
-            try:
-                df = pd.read_csv(upload_file)
+        data_source = st.radio(
+            "Choose Data Source",
+            ["CSV / Excel Upload", "MySQL Database"]
+        )
 
-                posthog.capture(
-                    distinct_id=get_user_id(),
-                    event="dataset_uploaded",
-                    properties={
-                        "rows": df.shape[0],
-                        "columns": df.shape[1]
-                    }
-                )
+        # =========================
+        # CSV / EXCEL
+        # =========================
 
-                # CHECK IF NEW FILE IS DIFFERENT
-                new_file_name = upload_file.name
+        if data_source == "CSV / Excel Upload":
 
-                if "last_uploaded_file" not in st.session_state:
-                    st.session_state["last_uploaded_file"] = ""
+            upload_file = st.file_uploader(
+                "Upload CSV or Excel File",
+                type=['csv', 'xlsx', 'xls']
+            )
 
-                # ONLY RESET WHEN NEW FILE IS UPLOADED
-                if st.session_state["last_uploaded_file"] != new_file_name:
-                    st.session_state["charts"] = []
-                    st.session_state["selected_chart"] = None
+            if upload_file:
 
-                    st.session_state["last_uploaded_file"] = new_file_name
+                try:
 
-                st.session_state['df'] = df
+                    file_extension = upload_file.name.split(".")[-1]
 
-                st.markdown("### 🔍 Preview")
-                st.dataframe(df.head())
+                    if file_extension == "csv":
 
-                col1, col2 = st.columns(2)
-                col1.metric('Rows', df.shape[0])
-                col2.metric('Columns', df.shape[1])
-            except UnicodeDecodeError as e:
+                        df = pd.read_csv(upload_file)
 
-                posthog.capture(
-                    distinct_id=get_user_id(),
-                    event="upload_error",
-                    properties={
-                        "error": str(e)
-                    }
-                )
+                    elif file_extension in ["xlsx", "xls"]:
 
-                st.error("⚠️ File encoding issue. Try re-saving your CSV as UTF-8 in Excel.")
-        else:
-            st.info("Upload a CSV file to see preview")
+                        excel_file = pd.ExcelFile(upload_file)
+
+                        selected_sheet = st.selectbox(
+                            "Select Excel Sheet",
+                            excel_file.sheet_names
+                        )
+
+                        df = pd.read_excel(
+                            upload_file,
+                            sheet_name=selected_sheet
+                        )
+
+                    # =========================
+                    # POSTHOG
+                    # =========================
+
+                    posthog.capture(
+                        distinct_id=get_user_id(),
+                        event="dataset_uploaded",
+                        properties={
+                            "rows": df.shape[0],
+                            "columns": df.shape[1]
+                        }
+                    )
+
+                    # =========================
+                    # RESET CHARTS FOR NEW FILE
+                    # =========================
+
+                    new_file_name = upload_file.name
+
+                    if "last_uploaded_file" not in st.session_state:
+                        st.session_state["last_uploaded_file"] = ""
+
+                    if st.session_state["last_uploaded_file"] != new_file_name:
+                        st.session_state["charts"] = []
+                        st.session_state["selected_chart"] = None
+
+                        st.session_state["last_uploaded_file"] = new_file_name
+
+                    st.session_state["df"] = df
+
+                except Exception as e:
+
+                    posthog.capture(
+                        distinct_id=get_user_id(),
+                        event="upload_error",
+                        properties={
+                            "error": str(e)
+                        }
+                    )
+
+                    st.error(f"⚠️ Error reading file: {e}")
+
+        # =========================
+        # MYSQL DATABASE
+        # =========================
+
+        elif data_source == "MySQL Database":
+
+            st.markdown("### 🗄️ Connect MySQL Database")
+
+            host = st.text_input(
+                "Host",
+                value="localhost"
+            )
+
+            port = st.text_input(
+                "Port",
+                value="3306"
+            )
+
+            user = st.text_input(
+                "Username"
+            )
+
+            password = st.text_input(
+                "Password",
+                type="password"
+            )
+
+            database = st.text_input(
+                "Database Name"
+            )
+
+            if st.button("🔌 Connect Database"):
+
+                try:
+
+                    from sqlalchemy import create_engine
+
+                    encoded_password = quote_plus(password)
+
+                    connection_string = (
+                        f"mysql+pymysql://{user}:{encoded_password}@"
+                        f"{host}:{port}/{database}"
+                    )
+
+                    engine = create_engine(
+                        connection_string,
+                        pool_pre_ping=True,
+                        connect_args={
+                            "connect_timeout": 10
+                        }
+                    )
+
+                    tables = pd.read_sql(
+                        "SHOW TABLES",
+                        engine
+                    )
+
+                    st.session_state["db_engine"] = engine
+
+                    st.session_state["tables"] = (
+                        tables.iloc[:, 0].tolist()
+                    )
+
+                    st.success("✅ Connected Successfully")
+
+                except Exception as e:
+
+                    st.error(f"❌ Connection Failed: {e}")
+
+        # =========================
+        # LOAD MYSQL TABLE
+        # =========================
+
+        if "tables" in st.session_state:
+
+            selected_table = st.selectbox(
+                "Select Table",
+                st.session_state["tables"],
+                key="mysql_selected_table"
+            )
+
+            if st.button("📥 Load Table"):
+
+                try:
+
+                    query = (
+                        f"SELECT * FROM {selected_table} LIMIT 5000"
+                    )
+
+                    df = pd.read_sql(
+                        query,
+                        st.session_state["db_engine"]
+                    )
+
+                    st.session_state["df"] = df
+
+                    st.success("✅ Table Loaded Successfully")
+
+                except Exception as e:
+
+                    st.error(f"❌ Failed to Load Table: {e}")
+
+        # =========================
+        # PERSISTENT PREVIEW
+        # =========================
+
+        if "df" in st.session_state:
+            st.markdown("### 🔍 Dataset Preview")
+
+            st.dataframe(
+                st.session_state["df"].head()
+            )
+
+            col1, col2 = st.columns(2)
+
+            col1.metric(
+                "Rows",
+                st.session_state["df"].shape[0]
+            )
+
+            col2.metric(
+                "Columns",
+                st.session_state["df"].shape[1]
+            )
 
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -411,10 +612,19 @@ else:
 
                 # ================= GROUPING =================
 
+                if (
+                        "group_col" not in selected_chart
+                        or selected_chart["group_col"] not in df.columns
+                ):
+                    selected_chart["group_col"] = df.columns[0]
+
                 selected_chart["group_col"] = st.sidebar.selectbox(
                     "Group By",
                     df.columns,
-                    index=list(df.columns).index(selected_chart["group_col"])
+                    index=list(df.columns).index(
+                        selected_chart["group_col"]
+                    ),
+                    key=f"group_{selected_chart['id']}"
                 )
 
                 numeric_cols_available = [
@@ -687,8 +897,24 @@ else:
 
             for i, chart_obj in enumerate(charts):
 
+                if (
+                        "group_col" not in chart_obj
+                        or chart_obj["group_col"] not in df.columns
+                ):
+                    chart_obj["group_col"] = df.columns[0]
+
                 group_col = chart_obj["group_col"]
+
+                # FIX INVALID NUMERIC COLUMNS
+                chart_obj["numeric_cols"] = [
+
+                    col for col in chart_obj["numeric_cols"]
+
+                    if col in df.columns
+                ]
+
                 numeric_cols = chart_obj["numeric_cols"]
+
                 chart_type = chart_obj["chart_type"]
 
                 has_numeric = len(numeric_cols) > 0
