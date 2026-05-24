@@ -8,7 +8,6 @@ import posthog
 import os
 import uuid
 from plotly.colors import qualitative
-from urllib.parse import quote_plus
 from ml.preprocessing import (
     clean_data,
     prepare_features,
@@ -255,189 +254,82 @@ else:
         # DATA SOURCE
         # =========================
 
-        data_source = st.radio(
-            "Choose Data Source",
-            ["CSV / Excel Upload", "MySQL Database"]
-        )
+        st.markdown("### Upload CSV or Excel File")
 
         # =========================
         # CSV / EXCEL
         # =========================
 
-        if data_source == "CSV / Excel Upload":
+        upload_file = st.file_uploader(
+            "Upload CSV or Excel File",
+            type=['csv', 'xlsx', 'xls']
+        )
 
-            upload_file = st.file_uploader(
-                "Upload CSV or Excel File",
-                type=['csv', 'xlsx', 'xls']
-            )
+        if upload_file:
 
-            if upload_file:
+            try:
 
-                try:
+                file_extension = upload_file.name.split(".")[-1]
 
-                    file_extension = upload_file.name.split(".")[-1]
+                if file_extension == "csv":
 
-                    if file_extension == "csv":
+                    df = pd.read_csv(upload_file)
 
-                        df = pd.read_csv(upload_file)
+                elif file_extension in ["xlsx", "xls"]:
 
-                    elif file_extension in ["xlsx", "xls"]:
+                    excel_file = pd.ExcelFile(upload_file)
 
-                        excel_file = pd.ExcelFile(upload_file)
-
-                        selected_sheet = st.selectbox(
-                            "Select Excel Sheet",
-                            excel_file.sheet_names
-                        )
-
-                        df = pd.read_excel(
-                            upload_file,
-                            sheet_name=selected_sheet
-                        )
-
-                    # =========================
-                    # POSTHOG
-                    # =========================
-
-                    posthog.capture(
-                        distinct_id=get_user_id(),
-                        event="dataset_uploaded",
-                        properties={
-                            "rows": df.shape[0],
-                            "columns": df.shape[1]
-                        }
+                    selected_sheet = st.selectbox(
+                        "Select Excel Sheet",
+                        excel_file.sheet_names
                     )
 
-                    # =========================
-                    # RESET CHARTS FOR NEW FILE
-                    # =========================
-
-                    new_file_name = upload_file.name
-
-                    if "last_uploaded_file" not in st.session_state:
-                        st.session_state["last_uploaded_file"] = ""
-
-                    if st.session_state["last_uploaded_file"] != new_file_name:
-                        st.session_state["charts"] = []
-                        st.session_state["selected_chart"] = None
-
-                        st.session_state["last_uploaded_file"] = new_file_name
-
-                    st.session_state["df"] = df
-
-                except Exception as e:
-
-                    posthog.capture(
-                        distinct_id=get_user_id(),
-                        event="upload_error",
-                        properties={
-                            "error": str(e)
-                        }
+                    df = pd.read_excel(
+                        upload_file,
+                        sheet_name=selected_sheet
                     )
 
-                    st.error(f"⚠️ Error reading file: {e}")
+                # =========================
+                # POSTHOG
+                # =========================
 
-        # =========================
-        # MYSQL DATABASE
-        # =========================
+                posthog.capture(
+                    distinct_id=get_user_id(),
+                    event="dataset_uploaded",
+                    properties={
+                        "rows": df.shape[0],
+                        "columns": df.shape[1]
+                    }
+                )
 
-        elif data_source == "MySQL Database":
+                # =========================
+                # RESET CHARTS FOR NEW FILE
+                # =========================
 
-            st.markdown("### 🗄️ Connect MySQL Database")
+                new_file_name = upload_file.name
 
-            host = st.text_input(
-                "Host",
-                value="localhost"
-            )
+                if "last_uploaded_file" not in st.session_state:
+                    st.session_state["last_uploaded_file"] = ""
 
-            port = st.text_input(
-                "Port",
-                value="3306"
-            )
+                if st.session_state["last_uploaded_file"] != new_file_name:
+                    st.session_state["charts"] = []
+                    st.session_state["selected_chart"] = None
 
-            user = st.text_input(
-                "Username"
-            )
+                    st.session_state["last_uploaded_file"] = new_file_name
 
-            password = st.text_input(
-                "Password",
-                type="password"
-            )
+                st.session_state["df"] = df
 
-            database = st.text_input(
-                "Database Name"
-            )
+            except Exception as e:
 
-            if st.button("🔌 Connect Database"):
+                posthog.capture(
+                    distinct_id=get_user_id(),
+                    event="upload_error",
+                    properties={
+                        "error": str(e)
+                    }
+                )
 
-                try:
-
-                    from sqlalchemy import create_engine
-
-                    encoded_password = quote_plus(password)
-
-                    connection_string = (
-                        f"mysql+pymysql://{user}:{encoded_password}@"
-                        f"{host}:{port}/{database}"
-                    )
-
-                    engine = create_engine(
-                        connection_string,
-                        pool_pre_ping=True,
-                        connect_args={
-                            "connect_timeout": 10
-                        }
-                    )
-
-                    tables = pd.read_sql(
-                        "SHOW TABLES",
-                        engine
-                    )
-
-                    st.session_state["db_engine"] = engine
-
-                    st.session_state["tables"] = (
-                        tables.iloc[:, 0].tolist()
-                    )
-
-                    st.success("✅ Connected Successfully")
-
-                except Exception as e:
-
-                    st.error(f"❌ Connection Failed: {e}")
-
-        # =========================
-        # LOAD MYSQL TABLE
-        # =========================
-
-        if "tables" in st.session_state:
-
-            selected_table = st.selectbox(
-                "Select Table",
-                st.session_state["tables"],
-                key="mysql_selected_table"
-            )
-
-            if st.button("📥 Load Table"):
-
-                try:
-
-                    query = (
-                        f"SELECT * FROM {selected_table} LIMIT 5000"
-                    )
-
-                    df = pd.read_sql(
-                        query,
-                        st.session_state["db_engine"]
-                    )
-
-                    st.session_state["df"] = df
-
-                    st.success("✅ Table Loaded Successfully")
-
-                except Exception as e:
-
-                    st.error(f"❌ Failed to Load Table: {e}")
+                st.error(f"⚠️ Error reading file: {e}")
 
         # =========================
         # PERSISTENT PREVIEW
