@@ -22,6 +22,153 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.metrics import accuracy_score, r2_score, mean_absolute_error, classification_report
 from pandas.api.types import is_numeric_dtype
+from groq import Groq
+
+client = Groq(
+    api_key=os.getenv("GROQ_API_KEY")
+)
+import numpy as np
+
+
+def generate_findings(df):
+
+    findings = []
+
+    numeric_cols = df.select_dtypes(include=np.number).columns
+    categorical_cols = df.select_dtypes(exclude=np.number).columns
+
+    # =========================
+    # CATEGORY CONCENTRATION
+    # =========================
+
+    for col in categorical_cols:
+
+        try:
+
+            share = (
+                df[col]
+                .value_counts(normalize=True)
+                * 100
+            )
+
+            if share.iloc[0] > 40:
+
+                findings.append(
+                    f"{share.index[0]} dominates '{col}' with {share.iloc[0]:.1f}% share."
+                )
+
+        except:
+            pass
+
+    # =========================
+    # NUMERIC CONCENTRATION
+    # =========================
+
+    for col in numeric_cols:
+
+        try:
+
+            top10_share = (
+                df.nlargest(
+                    min(10, len(df)),
+                    col
+                )[col].sum()
+                /
+                df[col].sum()
+            ) * 100
+
+            if top10_share > 30:
+
+                findings.append(
+                    f"Top records contribute {top10_share:.1f}% of total {col}."
+                )
+
+        except:
+            pass
+
+    # =========================
+    # CORRELATIONS
+    # =========================
+
+    if len(numeric_cols) >= 2:
+
+        corr = df[numeric_cols].corr()
+
+        for i in range(len(numeric_cols)):
+            for j in range(i + 1, len(numeric_cols)):
+
+                value = corr.iloc[i, j]
+
+                if abs(value) > 0.7:
+
+                    findings.append(
+                        f"{numeric_cols[i]} and {numeric_cols[j]} are strongly related ({value:.2f})."
+                    )
+
+    # =========================
+    # ANOMALY DETECTION
+    # =========================
+
+    for col in numeric_cols:
+
+        try:
+
+            q99 = df[col].quantile(0.99)
+
+            extreme = df[df[col] > q99]
+
+            if len(extreme) > 0:
+
+                findings.append(
+                    f"A small number of records have exceptionally high {col} values."
+                )
+
+        except:
+            pass
+
+    return findings[:10]
+
+def generate_ai_insights(findings):
+
+    if not findings:
+        return "No significant insights found."
+
+    prompt = f"""
+You are an experienced business analyst.
+
+Dataset Findings:
+
+{chr(10).join(findings)}
+
+Generate:
+
+📈 Trend Summary
+🚨 Risks / Anomalies
+🔮 Forecast
+💡 Recommended Actions
+
+Rules:
+
+- Focus on business impact.
+- Do not repeat findings word-for-word.
+- If evidence is insufficient for forecasting,
+  say 'Additional historical data required.'
+- Give practical recommendations.
+- Keep under 150 words.
+"""
+
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        temperature=0.3
+    )
+
+    return response.choices[0].message.content
 
 st.set_page_config(layout='wide')
 
@@ -315,9 +462,29 @@ else:
                     st.session_state["charts"] = []
                     st.session_state["selected_chart"] = None
 
+                    # Clear previous AI results
+                    st.session_state.pop("findings", None)
+                    st.session_state.pop("ai_summary", None)
+                    st.session_state.pop("insight_file", None)
+
                     st.session_state["last_uploaded_file"] = new_file_name
 
                 st.session_state["df"] = df
+
+                current_file = upload_file.name
+
+                if (
+                        "insight_file" not in st.session_state
+                        or st.session_state["insight_file"] != current_file
+                ):
+                    findings = generate_findings(df)
+
+                    ai_summary = generate_ai_insights(findings)
+
+                    st.session_state["findings"] = findings
+                    st.session_state["ai_summary"] = ai_summary
+
+                    st.session_state["insight_file"] = current_file
 
             except Exception as e:
 
@@ -353,6 +520,19 @@ else:
                 "Columns",
                 st.session_state["df"].shape[1]
             )
+
+            st.markdown("---")
+
+            st.subheader("🧠 AI Executive Insights")
+
+            st.info(
+                st.session_state["ai_summary"]
+            )
+
+            st.subheader("📊 Key Findings")
+
+            for finding in st.session_state["findings"]:
+                st.write("•", finding)
 
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -402,6 +582,7 @@ else:
 
                     # FILTERS
                     "filter_type": "None",
+                    "filter_column": None,
                     "top_n": 5,
                     "selected_values": []
                 }
@@ -448,6 +629,7 @@ else:
                     "hover_font_size": 14,
 
                     "filter_type": "None",
+                    "filter_column": None,
                     "top_n": 5,
                     "selected_values": []
                 }
@@ -696,20 +878,72 @@ else:
 
                 st.sidebar.markdown("### 🔍 Advanced Filters")
 
+                filter_options = [
+                    "None",
+                    "Top N",
+                    "Bottom N",
+                    "Include Only"
+                ]
+
                 selected_chart["filter_type"] = st.sidebar.selectbox(
                     "Filter Type",
-                    ["None", "Top N", "Bottom N"],
-                    index=["None", "Top N", "Bottom N"].index(
+                    filter_options,
+                    index=filter_options.index(
                         selected_chart["filter_type"]
                     )
                 )
 
                 if selected_chart["filter_type"] in ["Top N", "Bottom N"]:
+
                     selected_chart["top_n"] = st.sidebar.slider(
                         "Select N",
                         1,
                         20,
                         selected_chart["top_n"]
+                    )
+
+                elif selected_chart["filter_type"] == "Include Only":
+
+                    filter_column = st.sidebar.selectbox(
+                        "Filter Column",
+                        df.columns,
+                        index=0 if selected_chart["filter_column"] is None
+                        else list(df.columns).index(
+                            selected_chart["filter_column"]
+                        ),
+                        key=f"filter_col_{selected_chart['id']}"
+                    )
+
+                    old_filter_col = selected_chart["filter_column"]
+
+                    if old_filter_col != filter_column:
+                        selected_chart["selected_values"] = []
+
+                    selected_chart["filter_column"] = filter_column
+
+                    unique_values = sorted(
+                        df[filter_column]
+                        .dropna()
+                        .astype(str)
+                        .unique()
+                    )
+
+                    valid_defaults = [
+
+                        value
+                        for value in selected_chart.get(
+                            "selected_values",
+                            []
+                        )
+
+                        if value in unique_values
+                    ]
+
+                    selected_chart["selected_values"] = st.sidebar.multiselect(
+                        "Select Values",
+                        unique_values,
+                        default=valid_defaults,
+                        key=f"filter_values_{selected_chart['id']}"
                     )
 
             # ================= MULTI CHART DASHBOARD =================
@@ -782,6 +1016,12 @@ else:
 
                 if "top_n" not in chart_obj:
                     chart_obj["top_n"] = 5
+
+                if "selected_values" not in chart_obj:
+                    chart_obj["selected_values"] = []
+
+                if "filter_column" not in chart_obj:
+                    chart_obj["filter_column"] = None
 
             charts = st.session_state["charts"]
 
@@ -872,8 +1112,22 @@ else:
                     for col in numeric_cols
                 }
 
+                filtered_df = df.copy()
+
+                if (
+                        chart_obj["filter_type"] == "Include Only"
+                        and chart_obj["selected_values"]
+                ):
+                    filter_col = chart_obj["filter_column"]
+
+                    filtered_df = filtered_df[
+                        filtered_df[filter_col]
+                        .astype(str)
+                        .isin(chart_obj["selected_values"])
+                    ]
+
                 plot_data = (
-                    df.groupby(group_col, as_index=False)
+                    filtered_df.groupby(group_col, as_index=False)
                     .agg(agg_dict)
                 )
 
@@ -892,6 +1146,7 @@ else:
                         by=numeric_cols[0],
                         ascending=True
                     ).head(chart_obj["top_n"])
+
 
                 # ================= CHART TYPES =================
 
