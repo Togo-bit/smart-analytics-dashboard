@@ -24,9 +24,13 @@ from sklearn.metrics import accuracy_score, r2_score, mean_absolute_error, class
 from pandas.api.types import is_numeric_dtype
 from groq import Groq
 
-client = Groq(
-    api_key=os.getenv("GROQ_API_KEY")
-)
+groq_key = os.getenv("GROQ_API_KEY")
+
+if not groq_key:
+    st.error("GROQ_API_KEY not found")
+    st.stop()
+
+client = Groq(api_key=groq_key)
 import numpy as np
 
 
