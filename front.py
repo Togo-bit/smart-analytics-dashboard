@@ -33,6 +33,24 @@ if not groq_key:
 client = Groq(api_key=groq_key)
 import numpy as np
 
+def find_revenue_column(df):
+
+    revenue_keywords = [
+        "revenue",
+        "sales",
+        "amount",
+        "income",
+        "profit",
+        "price",
+        "total"
+    ]
+
+    for col in df.columns:
+
+        if col.lower() in revenue_keywords:
+            return col
+
+    return None
 
 def generate_findings(df):
 
@@ -89,6 +107,119 @@ def generate_findings(df):
 
         except:
             pass
+
+        # =========================
+        # REVENUE CONCENTRATION
+        # =========================
+
+        revenue_col = find_revenue_column(df)
+
+        if revenue_col:
+
+            categorical_cols = df.select_dtypes(
+                exclude=np.number
+            ).columns
+
+            for cat_col in categorical_cols:
+
+                try:
+
+                    revenue_by_group = (
+                        df.groupby(cat_col)[revenue_col]
+                        .sum()
+                        .sort_values(ascending=False)
+                    )
+
+                    if len(revenue_by_group) >= 5:
+                        top5_share = (
+                                             revenue_by_group.head(5).sum()
+                                             /
+                                             revenue_by_group.sum()
+                                     ) * 100
+
+                        findings.append(
+                            f"Top 5 {cat_col} contribute {top5_share:.1f}% of total {revenue_col}."
+                        )
+
+                except:
+                    pass
+
+                # =========================
+                # PARETO ANALYSIS
+                # =========================
+
+                if revenue_col:
+
+                    categorical_cols = df.select_dtypes(
+                        exclude=np.number
+                    ).columns
+
+                    for cat_col in categorical_cols:
+
+                        try:
+
+                            revenue_dist = (
+                                df.groupby(cat_col)[revenue_col]
+                                .sum()
+                                .sort_values(ascending=False)
+                            )
+
+                            cumulative = (
+                                    revenue_dist.cumsum()
+                                    /
+                                    revenue_dist.sum()
+                            )
+
+                            count_needed = (
+                                    cumulative <= 0.80
+                            ).sum()
+
+                            percent_needed = (
+                                                     count_needed
+                                                     /
+                                                     len(revenue_dist)
+                                             ) * 100
+
+                            findings.append(
+                                f"{percent_needed:.1f}% of {cat_col} generate 80% of {revenue_col}."
+                            )
+
+                        except:
+                            pass
+
+                # =========================
+                # DEPENDENCY RISK
+                # =========================
+
+                if revenue_col:
+
+                    categorical_cols = df.select_dtypes(
+                        exclude=np.number
+                    ).columns
+
+                    for cat_col in categorical_cols:
+
+                        try:
+
+                            revenue_dist = (
+                                df.groupby(cat_col)[revenue_col]
+                                .sum()
+                                .sort_values(ascending=False)
+                            )
+
+                            largest_share = (
+                                                    revenue_dist.iloc[0]
+                                                    /
+                                                    revenue_dist.sum()
+                                            ) * 100
+
+                            if largest_share > 20:
+                                findings.append(
+                                    f"Largest {cat_col} contributes {largest_share:.1f}% of total {revenue_col}, creating dependency risk."
+                                )
+
+                        except:
+                            pass
 
     # =========================
     # CORRELATIONS
