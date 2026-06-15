@@ -22,7 +22,125 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.metrics import accuracy_score, r2_score, mean_absolute_error, classification_report
 from pandas.api.types import is_numeric_dtype
+import base64
 from groq import Groq
+
+import base64
+
+st.set_page_config(
+    page_title="SalesPulse",
+    page_icon="📈",
+)
+
+st.markdown("""
+<style>
+
+.hero-container{
+    background: linear-gradient(
+        135deg,
+        #0B1220 0%,
+        #111827 50%,
+        #172554 100%
+    );
+
+    padding:40px 50px;
+
+    border-radius:24px;
+
+    border:1px solid rgba(255,255,255,0.08);
+
+    margin-bottom:30px;
+}
+
+.hero-card{
+    border-radius:18px;
+    border:1px solid rgba(255,255,255,0.08);
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<style>
+
+.hero-header{
+    background: linear-gradient(
+        135deg,
+        #0B1220 0%,
+        #111827 50%,
+        #1E3A8A 100%
+    );
+
+    padding:50px;
+
+    border-radius:24px;
+
+    border:1px solid rgba(255,255,255,0.08);
+
+    margin-bottom:30px;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+def get_base64_image(image_path):
+    with open(image_path, "rb") as img:
+        return base64.b64encode(img.read()).decode()
+
+logo_base64 = get_base64_image(
+    "logo.png.png"
+)
+
+st.markdown(
+f"""
+<div class="hero-header">
+
+<div style="
+display:flex;
+align-items:center;
+gap:20px;
+">
+
+<img
+src="data:image/png;base64,{logo_base64}"
+style="
+height:90px;
+border-radius:12px;
+">
+
+<span style="
+font-size:72px;
+font-weight:800;
+color:white;
+">
+SalesPulse
+</span>
+
+</div>
+
+<div style="
+margin-top:30px;
+font-size:48px;
+font-weight:700;
+color:white;
+line-height:1.2;
+">
+Turn Raw Data Into Business Decisions
+</div>
+
+<div style="
+margin-top:20px;
+font-size:20px;
+color:#CBD5E1;
+">
+Upload data, uncover trends, identify risks,
+forecast outcomes, and make smarter decisions.
+</div>
+
+</div>
+""",
+unsafe_allow_html=True
+)
 
 groq_key = os.getenv("GROQ_API_KEY")
 
@@ -322,14 +440,33 @@ if "token" in query_params:
 
 st.markdown("""
 <style>
+
 .card {
-    background: linear-gradient(145deg, #1E293B, #0F172A);
-    padding: 20px;
-    border-radius: 18px;
-    box-shadow: 0px 6px 20px rgba(0,0,0,0.4);
-    margin-bottom: 20px;
-    border: 1px solid rgba(255,255,255,0.05);
+
+    background:#111827;
+
+    padding:20px;
+
+    border-radius:18px;
+
+    border:1px solid rgba(
+        255,
+        255,
+        255,
+        0.08
+    );
+
+    box-shadow:
+        0 8px 24px rgba(
+            0,
+            0,
+            0,
+            0.35
+        );
+
+    margin-bottom:20px;
 }
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -373,6 +510,57 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+st.markdown("""
+<style>
+
+.insight-card{
+    background:#111827;
+    border-left:4px solid #7C3AED;
+    padding:14px;
+    margin-bottom:10px;
+    border-radius:12px;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<style>
+
+/* Tab container */
+.stTabs [data-baseweb="tab-list"]{
+    gap:12px;
+    margin-top:10px;
+}
+
+/* Individual tabs */
+.stTabs [data-baseweb="tab"]{
+    background-color: rgba(255,255,255,0.04);
+    border-radius:12px;
+    padding:10px 20px;
+    color:white;
+    font-weight:600;
+    border:1px solid rgba(255,255,255,0.08);
+}
+
+/* Active tab */
+.stTabs [aria-selected="true"]{
+    background: linear-gradient(
+        135deg,
+        #1E3A5F,
+        #164E63
+    );
+    color:white !important;
+}
+
+/* Remove red underline */
+.stTabs [data-baseweb="tab-highlight"]{
+    display:none;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
 API_URL = os.getenv("API_URL", "https://flask-backend-ygwu.onrender.com/")
 posthog.api_key = st.secrets["POSTHOG_API_KEY"]
 posthog.host = "https://app.posthog.com"
@@ -393,11 +581,6 @@ posthog.capture(
     distinct_id=get_user_id(),
     event="app_opened"
 )
-
-st.markdown("""
-# 📊 SalesPulse
-### Upload • Analyze • Get Insights
-""")
 
 # AUTH Section
 if "token" not in st.session_state:
@@ -516,21 +699,86 @@ if "token" not in st.session_state:
 else:
     headers = {"Authorization": f"Bearer {st.session_state['token']}"}
 
+    with st.sidebar:
+
+        st.markdown("#  SalesPulse")
+
+        st.caption(
+            "Decision Intelligence\nfor Growing Businesses"
+        )
+
+        st.divider()
+
+        if st.button("🚪 Logout"):
+
+            posthog.capture(
+                distinct_id=get_user_id(),
+                event="user_logged_out"
+            )
+
+            del st.session_state['token']
+            del st.session_state['user_email']
+
+            if "df" in st.session_state:
+                del st.session_state["df"]
+
+            st.rerun()
+
     if "charts" not in st.session_state:
         st.session_state["charts"] = []
 
     if "selected_chart" not in st.session_state:
         st.session_state["selected_chart"] = None
 
-    st.subheader('Upload & Analyze Your Data')
+    c1, c2, c3 = st.columns(3)
 
-    tab1, tab2, tab3, tab4 = st.tabs(["📁 Upload", "📊 Dashboard", "📈 Analysis", "🤖 Predictions"])
+    with c1:
+        st.success("""
+        ### 📈 Growth
+
+        Identify trends, high-performing
+        segments and expansion potential.
+        """)
+
+    with c2:
+        st.warning("""
+        ### ⚠ Revenue Risks
+
+        Detect concentration risks,
+        declining performance and anomalies.
+        """)
+
+    with c3:
+        st.info("""
+        ### 🔮 Forecasting
+
+        Predict future outcomes using
+        historical patterns.
+        """)
+
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "Upload",
+        "Dashboard",
+        "Analysis",
+        "Predictions"
+    ])
+
+    st.markdown(
+        """
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
     with tab1:
 
         st.markdown('<div class="card">', unsafe_allow_html=True)
 
-        st.subheader("📁 Upload & Preview Data")
+        st.subheader("📂 Start Your Analysis")
+
+        st.caption(
+            "Supports CSV and Excel files"
+        )
 
         # =========================
         # DATA SOURCE
@@ -542,10 +790,12 @@ else:
         # CSV / EXCEL
         # =========================
 
-        upload_file = st.file_uploader(
-            "Upload CSV or Excel File",
-            type=['csv', 'xlsx', 'xls']
-        )
+        with st.container(border=True):
+
+            upload_file = st.file_uploader(
+                "Drag & Drop your CSV or Excel file",
+                type=['csv', 'xlsx', 'xls']
+            )
 
         if upload_file:
 
@@ -636,6 +886,24 @@ else:
         # =========================
         # PERSISTENT PREVIEW
         # =========================
+        if "df" not in st.session_state:
+            st.markdown("""
+        ### What can SalesPulse do?
+            """)
+
+            c1, c2, c3, c4 = st.columns(4)
+
+            with c1:
+                st.info("Revenue")
+
+            with c2:
+                st.info("Forecasting")
+
+            with c3:
+                st.info("Trends")
+
+            with c4:
+                st.info("Anomalies")
 
         if "df" in st.session_state:
             st.markdown("### 🔍 Dataset Preview")
@@ -644,21 +912,35 @@ else:
                 st.session_state["df"].head()
             )
 
-            col1, col2 = st.columns(2)
+            rows = st.session_state["df"].shape[0]
+            cols = st.session_state["df"].shape[1]
 
-            col1.metric(
-                "Rows",
-                st.session_state["df"].shape[0]
+            missing = (
+                st.session_state["df"]
+                .isna()
+                .sum()
+                .sum()
             )
 
-            col2.metric(
-                "Columns",
-                st.session_state["df"].shape[1]
+            duplicates = (
+                st.session_state["df"]
+                .duplicated()
+                .sum()
             )
+
+            c1, c2, c3, c4 = st.columns(4)
+
+            c1.metric("Rows", rows)
+
+            c2.metric("Columns", cols)
+
+            c3.metric("Missing Values", missing)
+
+            c4.metric("Duplicates", duplicates)
 
             st.markdown("---")
 
-            st.subheader("🧠 AI Executive Insights")
+            st.subheader("📈 Executive Summary")
 
             st.info(
                 st.session_state["ai_summary"]
@@ -667,7 +949,14 @@ else:
             st.subheader("📊 Key Findings")
 
             for finding in st.session_state["findings"]:
-                st.write("•", finding)
+                st.markdown(
+                    f"""
+                    <div class="insight-card">
+                        📌 {finding}
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
 
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1917,3 +2206,9 @@ else:
                     )
 
         st.markdown('</div>', unsafe_allow_html=True)
+
+st.divider()
+
+st.caption(
+    "SalesPulse v1.0 • AI-Powered Decision Intelligence"
+)
