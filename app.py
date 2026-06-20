@@ -8,7 +8,6 @@ import jwt, datetime
 import os
 from authlib.integrations.flask_client import OAuth
 from flask import session, jsonify
-from flask_session import Session
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -17,10 +16,7 @@ app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = "None"
 
 app.secret_key = app.config['SECRET_KEY']
-
-app.config["SESSION_TYPE"] = "filesystem"
-
-Session(app)
+app.config['SESSION_PERMANENT'] = False
 
 oauth = OAuth(app)
 
@@ -102,42 +98,45 @@ def login():
 
 @app.route('/google/callback')
 def google_callback():
-
-    token = google.authorize_access_token()
-
-    user_info = token.get('userinfo')
-
-    email = user_info['email']
-    username = user_info['name']
-
-    # CHECK IF USER EXISTS
-    user = Details.query.filter_by(email=email).first()
-
-    # CREATE NEW USER IF NOT EXISTS
-    if not user:
-
-        user = Details(
-            username=username,
-            email=email,
-            password="google_oauth"
+    
+    try:
+        token = google.authorize_access_token()
+    
+        user_info = token.get('userinfo')
+    
+        email = user_info['email']
+        username = user_info['name']
+    
+        # CHECK IF USER EXISTS
+        user = Details.query.filter_by(email=email).first()
+    
+        # CREATE NEW USER IF NOT EXISTS
+        if not user:
+    
+            user = Details(
+                username=username,
+                email=email,
+                password="google_oauth"
+            )
+    
+            db.session.add(user)
+            db.session.commit()
+    
+        # CREATE JWT TOKEN
+        jwt_token = jwt.encode({
+            "user_id": user.id,
+            "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=2)
+        },
+            app.config['SECRET_KEY'],
+            algorithm='HS256'
         )
-
-        db.session.add(user)
-        db.session.commit()
-
-    # CREATE JWT TOKEN
-    jwt_token = jwt.encode({
-        "user_id": user.id,
-        "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=2)
-    },
-        app.config['SECRET_KEY'],
-        algorithm='HS256'
+    
+        # REDIRECT TO STREAMLIT
+        return redirect(
+        f"https://smart-analytics-dashboard-wbaguwtbf6getkfpafjvhm.streamlit.app/?token={jwt_token}&email={email}"
     )
-
-    # REDIRECT TO STREAMLIT
-    return redirect(
-    f"https://smart-analytics-dashboard-wbaguwtbf6getkfpafjvhm.streamlit.app/?token={jwt_token}&email={email}"
-)
+    except Exception as e:
+        return {"error": str(e)}
 
 if __name__ == '__main__':
     app.run(debug=True)
