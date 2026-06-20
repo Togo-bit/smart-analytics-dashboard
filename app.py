@@ -139,8 +139,5 @@ def google_callback():
     f"https://smart-analytics-dashboard-wbaguwtbf6getkfpafjvhm.streamlit.app/?token={jwt_token}&email={email}"
 )
 
-with app.app_context():
-    db.create_all()
-
 if __name__ == '__main__':
     app.run(debug=True)
