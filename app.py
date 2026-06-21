@@ -9,6 +9,8 @@ import jwt, datetime
 app = Flask(__name__)
 app.config.from_object(Config)
 
+app.secret_key = app.config['SECRET_KEY']
+
 db.init_app(app)
 
 @app.route('/')
