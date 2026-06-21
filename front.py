@@ -88,7 +88,7 @@ def get_base64_image(image_path):
         return base64.b64encode(img.read()).decode()
 
 logo_base64 = get_base64_image(
-    "logo.png.png"
+    r"C:\Users\acer.DESKTOP-1VQGBE7\OneDrive\Desktop\SalesPulse\improved logo.png"
 )
 
 st.markdown(
@@ -425,19 +425,6 @@ Rules:
 
 st.set_page_config(layout='wide')
 
-query_params = st.query_params
-
-if "token" in query_params:
-
-    st.session_state["token"] = query_params["token"]
-    st.session_state["user_email"] = query_params["email"]
-
-    st.success("Google Login Successful")
-
-    st.query_params.clear()
-
-    st.rerun()
-
 st.markdown("""
 <style>
 
@@ -637,26 +624,6 @@ if "token" not in st.session_state:
         st.markdown("### Or Login with Google")
 
         google_login_url = f"{API_URL}google/login"
-
-        st.markdown(
-            f"""
-            <a href="{google_login_url}" target="_self">
-                <button style="
-                    background-color:#4285F4;
-                    color:white;
-                    border:none;
-                    padding:12px 20px;
-                    border-radius:8px;
-                    font-size:16px;
-                    cursor:pointer;
-                    width:100%;
-                ">
-                    🔵 Continue with Google
-                </button>
-            </a>
-            """,
-            unsafe_allow_html=True
-        )
 
     elif page == 'Register':
         st.subheader('Register')
