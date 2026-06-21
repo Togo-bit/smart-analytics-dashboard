@@ -88,7 +88,7 @@ def get_base64_image(image_path):
         return base64.b64encode(img.read()).decode()
 
 logo_base64 = get_base64_image(
-    "logo.logo"
+    "logo.png.png"
 )
 
 st.markdown(
