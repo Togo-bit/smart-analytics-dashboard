@@ -621,8 +621,6 @@ if "token" not in st.session_state:
 
         st.markdown("---")
 
-        st.markdown("### Or Login with Google")
-
         google_login_url = f"{API_URL}google/login"
 
     elif page == 'Register':
