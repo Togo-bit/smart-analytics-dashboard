@@ -30,6 +30,7 @@ import base64
 st.set_page_config(
     page_title="SalesPulse",
     page_icon="📈",
+    layout = "wide"
 )
 
 st.markdown("""
@@ -422,8 +423,6 @@ Rules:
     )
 
     return response.choices[0].message.content
-
-st.set_page_config(layout='wide')
 
 st.markdown("""
 <style>
