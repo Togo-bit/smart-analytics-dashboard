@@ -24,13 +24,13 @@ from sklearn.metrics import accuracy_score, r2_score, mean_absolute_error, class
 from pandas.api.types import is_numeric_dtype
 import base64
 from groq import Groq
+import re
 
 import base64
 
 st.set_page_config(
     page_title="SalesPulse",
     page_icon="📈",
-    layout = "wide"
 )
 
 st.markdown("""
@@ -171,12 +171,86 @@ def find_revenue_column(df):
 
     return None
 
+def get_analysis_columns(df):
+
+    ID_KEYWORDS = [
+        "id",
+        "customerid",
+        "customer_id",
+        "invoice",
+        "invoiceid",
+        "invoice_id",
+        "orderid",
+        "order_id",
+        "transaction",
+        "uuid",
+        "guid",
+        "email"
+    ]
+
+    analysis_cols = []
+
+    for col in df.select_dtypes(exclude=np.number).columns:
+
+        col_lower = col.lower().replace(" ", "").replace("-", "_")
+
+        # Skip identifier-like names
+        if any(keyword in col_lower for keyword in ID_KEYWORDS):
+            continue
+
+        # Skip columns where almost every value is unique
+        uniqueness_ratio = df[col].nunique(dropna=True) / len(df)
+
+        if uniqueness_ratio > 0.95:
+            continue
+
+        analysis_cols.append(col)
+
+    return analysis_cols
+
+def get_groupby_columns(df):
+
+    ID_KEYWORDS = [
+        "id",
+        "customerid",
+        "customer_id",
+        "invoice",
+        "invoiceid",
+        "invoice_id",
+        "orderid",
+        "order_id",
+        "transaction",
+        "uuid",
+        "guid",
+        "email"
+    ]
+
+    columns = []
+
+    for col in df.columns:
+
+        normalized = (
+            col.lower()
+               .replace(" ", "")
+               .replace("_", "")
+               .replace("-", "")
+        )
+
+        # Skip identifier columns
+        if any(keyword.replace("_", "") in normalized for keyword in ID_KEYWORDS):
+            continue
+
+        columns.append(col)
+
+    return columns
+
 def generate_findings(df):
 
     findings = []
 
     numeric_cols = df.select_dtypes(include=np.number).columns
-    categorical_cols = df.select_dtypes(exclude=np.number).columns
+    categorical_cols = get_analysis_columns(df)
+
 
     # =========================
     # CATEGORY CONCENTRATION
@@ -227,118 +301,117 @@ def generate_findings(df):
         except:
             pass
 
-        # =========================
-        # REVENUE CONCENTRATION
-        # =========================
+    # =========================
+    # REVENUE CONCENTRATION
+    # =========================
 
-        revenue_col = find_revenue_column(df)
+    revenue_col = find_revenue_column(df)
 
-        if revenue_col:
+    groupby_cache = {}
 
-            categorical_cols = df.select_dtypes(
-                exclude=np.number
-            ).columns
+    for col in categorical_cols:
 
-            for cat_col in categorical_cols:
+        try:
+            groupby_cache[col] = (
+                df.groupby(col)[revenue_col]
+                .sum()
+                .sort_values(ascending=False)
+            )
 
-                try:
+        except:
+            pass
 
-                    revenue_by_group = (
-                        df.groupby(cat_col)[revenue_col]
-                        .sum()
-                        .sort_values(ascending=False)
+    if revenue_col:
+
+        for cat_col in categorical_cols:
+
+            try:
+
+                revenue_by_group = groupby_cache.get(cat_col)
+
+                if revenue_by_group is None:
+                    continue
+
+                if len(revenue_by_group) >= 5:
+                    top5_share = (
+                                            revenue_by_group.head(5).sum()
+                                            /
+                                            revenue_by_group.sum()
+                                    ) * 100
+
+                    findings.append(
+                        f"Top 5 {cat_col} contribute {top5_share:.1f}% of total {revenue_col}."
                     )
 
-                    if len(revenue_by_group) >= 5:
-                        top5_share = (
-                                             revenue_by_group.head(5).sum()
-                                             /
-                                             revenue_by_group.sum()
-                                     ) * 100
+            except:
+                pass
 
-                        findings.append(
-                            f"Top 5 {cat_col} contribute {top5_share:.1f}% of total {revenue_col}."
-                        )
+    # =========================
+    # PARETO ANALYSIS
+    # =========================
 
-                except:
+    if revenue_col:
+
+        for cat_col in categorical_cols:
+
+            try:
+
+                revenue_dist = groupby_cache.get(cat_col)
+
+                if revenue_dist is None:
+                    continue
+
+                cumulative = (
+                        revenue_dist.cumsum()
+                        /
+                        revenue_dist.sum()
+                )
+
+                count_needed = (
+                        cumulative <= 0.80
+                ).sum()
+
+                percent_needed = (
+                                         count_needed
+                                         /
+                                         len(revenue_dist)
+                                 ) * 100
+
+                findings.append(
+                    f"{percent_needed:.1f}% of {cat_col} generate 80% of {revenue_col}."
+                )
+
+            except:
+                pass
+
+    # =========================
+    # DEPENDENCY RISK
+    # =========================
+
+    if revenue_col:
+
+        for cat_col in categorical_cols:
+
+            try:
+
+                revenue_dist = groupby_cache.get(cat_col)
+
+                if revenue_dist is None:
+                    continue
+
+                largest_share = (
+                                        revenue_dist.iloc[0]
+                                        /
+                                        revenue_dist.sum()
+                                ) * 100
+
+                if largest_share > 20:
+                    findings.append(
+                        f"Largest {cat_col} contributes {largest_share:.1f}% of total {revenue_col}, creating dependency risk."
+                    )
+
+            except:
                     pass
-
-                # =========================
-                # PARETO ANALYSIS
-                # =========================
-
-                if revenue_col:
-
-                    categorical_cols = df.select_dtypes(
-                        exclude=np.number
-                    ).columns
-
-                    for cat_col in categorical_cols:
-
-                        try:
-
-                            revenue_dist = (
-                                df.groupby(cat_col)[revenue_col]
-                                .sum()
-                                .sort_values(ascending=False)
-                            )
-
-                            cumulative = (
-                                    revenue_dist.cumsum()
-                                    /
-                                    revenue_dist.sum()
-                            )
-
-                            count_needed = (
-                                    cumulative <= 0.80
-                            ).sum()
-
-                            percent_needed = (
-                                                     count_needed
-                                                     /
-                                                     len(revenue_dist)
-                                             ) * 100
-
-                            findings.append(
-                                f"{percent_needed:.1f}% of {cat_col} generate 80% of {revenue_col}."
-                            )
-
-                        except:
-                            pass
-
-                # =========================
-                # DEPENDENCY RISK
-                # =========================
-
-                if revenue_col:
-
-                    categorical_cols = df.select_dtypes(
-                        exclude=np.number
-                    ).columns
-
-                    for cat_col in categorical_cols:
-
-                        try:
-
-                            revenue_dist = (
-                                df.groupby(cat_col)[revenue_col]
-                                .sum()
-                                .sort_values(ascending=False)
-                            )
-
-                            largest_share = (
-                                                    revenue_dist.iloc[0]
-                                                    /
-                                                    revenue_dist.sum()
-                                            ) * 100
-
-                            if largest_share > 20:
-                                findings.append(
-                                    f"Largest {cat_col} contributes {largest_share:.1f}% of total {revenue_col}, creating dependency risk."
-                                )
-
-                        except:
-                            pass
 
     # =========================
     # CORRELATIONS
@@ -379,6 +452,11 @@ def generate_findings(df):
 
         except:
             pass
+
+    print("-" * 50)
+
+
+    print("-" * 50)
 
     return findings[:10]
 
@@ -423,6 +501,8 @@ Rules:
     )
 
     return response.choices[0].message.content
+
+st.set_page_config(layout='wide')
 
 st.markdown("""
 <style>
@@ -786,6 +866,31 @@ else:
                     )
 
                 # =========================
+                # AUTO DETECT NUMERIC COLUMNS
+                # =========================
+
+                for col in df.columns:
+
+                    if df[col].dtype == "object":
+
+                        cleaned = (
+                            df[col]
+                            .astype(str)
+                            .str.replace(",", "", regex=False)
+                            .str.strip()
+                            .str.replace(r"[^\d\.\-]", "", regex=True)
+                        )
+
+                        converted = pd.to_numeric(
+                            cleaned,
+                            errors="coerce"
+                        )
+
+                        # Convert only if at least 90% of values are numeric
+                        if converted.notna().mean() >= 0.90:
+                            df[col] = converted
+
+                # =========================
                 # POSTHOG
                 # =========================
 
@@ -1080,10 +1185,17 @@ else:
                 ):
                     selected_chart["group_col"] = df.columns[0]
 
+                groupby_columns = get_groupby_columns(df)
+
+                groupby_columns = list(dict.fromkeys(groupby_columns))
+
+                if selected_chart["group_col"] not in groupby_columns:
+                    selected_chart["group_col"] = groupby_columns[0]
+
                 selected_chart["group_col"] = st.sidebar.selectbox(
                     "Group By",
-                    df.columns,
-                    index=list(df.columns).index(
+                    groupby_columns,
+                    index=groupby_columns.index(
                         selected_chart["group_col"]
                     ),
                     key=f"group_{selected_chart['id']}"
@@ -1309,6 +1421,8 @@ else:
 
                     selected_chart["filter_column"] = filter_column
 
+                    MAX_FILTER_VALUES = 100
+
                     unique_values = sorted(
                         df[filter_column]
                         .dropna()
@@ -1316,23 +1430,44 @@ else:
                         .unique()
                     )
 
-                    valid_defaults = [
+                    if len(unique_values) > MAX_FILTER_VALUES:
 
-                        value
-                        for value in selected_chart.get(
-                            "selected_values",
-                            []
+                        st.sidebar.info(
+                            f"{len(unique_values)} unique values detected."
                         )
 
-                        if value in unique_values
-                    ]
+                        search_value = st.sidebar.text_input(
+                            "Enter exact value",
+                            key=f"search_{selected_chart['id']}"
+                        )
 
-                    selected_chart["selected_values"] = st.sidebar.multiselect(
-                        "Select Values",
-                        unique_values,
-                        default=valid_defaults,
-                        key=f"filter_values_{selected_chart['id']}"
-                    )
+                        if search_value:
+
+                            selected_chart["selected_values"] = [search_value]
+
+                        else:
+
+                            selected_chart["selected_values"] = []
+
+                    else:
+
+                        valid_defaults = [
+
+                            value
+                            for value in selected_chart.get(
+                                "selected_values",
+                                []
+                            )
+
+                            if value in unique_values
+                        ]
+
+                        selected_chart["selected_values"] = st.sidebar.multiselect(
+                            "Select Values",
+                            unique_values,
+                            default=valid_defaults,
+                            key=f"filter_values_{selected_chart['id']}"
+                        )
 
             # ================= MULTI CHART DASHBOARD =================
 
