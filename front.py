@@ -89,7 +89,7 @@ def get_base64_image(image_path):
         return base64.b64encode(img.read()).decode()
 
 logo_base64 = get_base64_image(
-    "logo.png.png"
+    "improved_logo.png"
 )
 
 st.markdown(
@@ -126,7 +126,7 @@ font-weight:700;
 color:white;
 line-height:1.2;
 ">
-Turn Raw Data Into Business Decisions
+Turn Your Sales Data Into Executive Insights
 </div>
 
 <div style="
@@ -134,14 +134,21 @@ margin-top:20px;
 font-size:20px;
 color:#CBD5E1;
 ">
-Upload data, uncover trends, identify risks,
-forecast outcomes, and make smarter decisions.
+Upload your sales CSV and instantly discover what's happening, why it's happening, 
+the risks affecting your business, and the actions you should take next.
 </div>
 
 </div>
 """,
 unsafe_allow_html=True
 )
+
+@st.dialog("SalesPulse Demo")
+def show_demo():
+    st.video("Demo video.mp4")
+
+if st.button("▶ Watch Demo"):
+    show_demo()
 
 groq_key = os.getenv("GROQ_API_KEY")
 
@@ -245,8 +252,26 @@ def get_groupby_columns(df):
     return columns
 
 def generate_findings(df):
-
     findings = []
+
+    def add_finding(
+            category,
+            title,
+            evidence,
+            severity="Medium",
+            metric=None,
+            dimension=None,
+            value=None
+    ):
+        findings.append({
+            "category": category,
+            "title": title,
+            "severity": severity,
+            "metric": metric,
+            "dimension": dimension,
+            "value": value,
+            "evidence": evidence
+        })
 
     numeric_cols = df.select_dtypes(include=np.number).columns
     categorical_cols = get_analysis_columns(df)
@@ -267,9 +292,17 @@ def generate_findings(df):
             )
 
             if share.iloc[0] > 40:
-
-                findings.append(
-                    f"{share.index[0]} dominates '{col}' with {share.iloc[0]:.1f}% share."
+                add_finding(
+                    category="Customers",
+                    title=f"{share.index[0]} dominates {col}",
+                    severity="High" if share.iloc[0] > 60 else "Medium",
+                    metric="Share",
+                    dimension=col,
+                    value=round(share.iloc[0], 1),
+                    evidence={
+                        "Top Category": str(share.index[0]),
+                        "Market Share": f"{share.iloc[0]:.1f}%"
+                    }
                 )
 
         except:
@@ -293,9 +326,15 @@ def generate_findings(df):
             ) * 100
 
             if top10_share > 30:
-
-                findings.append(
-                    f"Top records contribute {top10_share:.1f}% of total {col}."
+                add_finding(
+                    category="Performance",
+                    title=f"Top records dominate {col}",
+                    severity="High" if top10_share > 50 else "Medium",
+                    metric=col,
+                    value=round(top10_share, 1),
+                    evidence={
+                        "Top Records Share": f"{top10_share:.1f}%"
+                    }
                 )
 
         except:
@@ -339,8 +378,16 @@ def generate_findings(df):
                                             revenue_by_group.sum()
                                     ) * 100
 
-                    findings.append(
-                        f"Top 5 {cat_col} contribute {top5_share:.1f}% of total {revenue_col}."
+                    add_finding(
+                        category="Revenue",
+                        title=f"Top 5 {cat_col} account for {top5_share:.1f}% of revenue",
+                        severity="High" if top5_share > 70 else "Medium",
+                        metric=revenue_col,
+                        dimension=cat_col,
+                        value=round(top5_share, 1),
+                        evidence={
+                            "Top 5 Share": f"{top5_share:.1f}%"
+                        }
                     )
 
             except:
@@ -377,8 +424,16 @@ def generate_findings(df):
                                          len(revenue_dist)
                                  ) * 100
 
-                findings.append(
-                    f"{percent_needed:.1f}% of {cat_col} generate 80% of {revenue_col}."
+                add_finding(
+                    category="Revenue",
+                    title=f"Revenue follows Pareto distribution",
+                    severity="Medium",
+                    metric=revenue_col,
+                    dimension=cat_col,
+                    value=round(percent_needed, 1),
+                    evidence={
+                        "Entities Needed": f"{percent_needed:.1f}%"
+                    }
                 )
 
             except:
@@ -406,8 +461,16 @@ def generate_findings(df):
                                 ) * 100
 
                 if largest_share > 20:
-                    findings.append(
-                        f"Largest {cat_col} contributes {largest_share:.1f}% of total {revenue_col}, creating dependency risk."
+                    add_finding(
+                        category="Revenue",
+                        title=f"High dependency on one {cat_col}",
+                        severity="High",
+                        metric=revenue_col,
+                        dimension=cat_col,
+                        value=round(largest_share, 1),
+                        evidence={
+                            "Largest Share": f"{largest_share:.1f}%"
+                        }
                     )
 
             except:
@@ -427,9 +490,15 @@ def generate_findings(df):
                 value = corr.iloc[i, j]
 
                 if abs(value) > 0.7:
-
-                    findings.append(
-                        f"{numeric_cols[i]} and {numeric_cols[j]} are strongly related ({value:.2f})."
+                    add_finding(
+                        category="Performance",
+                        title=f"{numeric_cols[i]} strongly relates to {numeric_cols[j]}",
+                        severity="Medium",
+                        metric="Correlation",
+                        value=round(value, 2),
+                        evidence={
+                            "Correlation": round(float(value), 2)
+                        }
                     )
 
     # =========================
@@ -445,9 +514,15 @@ def generate_findings(df):
             extreme = df[df[col] > q99]
 
             if len(extreme) > 0:
-
-                findings.append(
-                    f"A small number of records have exceptionally high {col} values."
+                add_finding(
+                    category="Risk",
+                    title=f"Extreme values detected in {col}",
+                    severity="Medium",
+                    metric=col,
+                    evidence={
+                        "Threshold": round(float(q99), 2),
+                        "Outliers": int(len(extreme))
+                    }
                 )
 
         except:
@@ -458,36 +533,269 @@ def generate_findings(df):
 
     print("-" * 50)
 
+    findings = sorted(
+        findings,
+        key=lambda x: (
+            0 if x["severity"] == "High" else 1,
+            x["category"]
+        )
+    )
+
     return findings[:10]
 
-def generate_ai_insights(findings):
+from collections import defaultdict
 
-    if not findings:
-        return "No significant insights found."
+def group_findings(findings):
+
+    grouped = defaultdict(list)
+
+    for finding in findings:
+        grouped[finding["category"]].append(finding)
+
+    return grouped
+
+def build_dataset_context(df):
+
+    numeric_cols = list(df.select_dtypes(include="number").columns)
+
+    categorical_cols = list(
+        df.select_dtypes(exclude="number").columns
+    )
+
+    revenue_col = find_revenue_column(df)
+
+    dataset_type = "General Business"
+
+    columns_lower = " ".join(df.columns).lower()
+
+    if "customer" in columns_lower:
+        dataset_type = "Customer Analytics"
+
+    elif "sales" in columns_lower:
+        dataset_type = "Sales Analytics"
+
+    elif "employee" in columns_lower:
+        dataset_type = "HR Analytics"
+
+    elif "product" in columns_lower:
+        dataset_type = "Product Analytics"
+
+    elif "inventory" in columns_lower:
+        dataset_type = "Inventory Analytics"
+
+    date_columns = []
+
+    for col in df.columns:
+
+        lower = col.lower()
+
+        if any(word in lower for word in [
+            "date",
+            "month",
+            "year",
+            "day",
+            "time"
+        ]):
+            date_columns.append(col)
+
+    context = f"""
+    Dataset Type:
+    {dataset_type}
+    
+Dataset Overview
+
+Rows: {len(df):,}
+
+Columns: {len(df.columns)}
+
+Revenue Column:
+{revenue_col if revenue_col else "Not detected"}
+
+Date Columns:
+{', '.join(date_columns) if date_columns else "None"}
+
+Numeric Columns:
+{', '.join(numeric_cols)}
+
+Categorical Columns:
+{', '.join(categorical_cols)}
+
+Missing Values:
+{df.isna().sum().sum()}
+
+Duplicate Rows:
+{df.duplicated().sum()}
+"""
+
+    return context
+
+def generate_ai_insights(df, findings):
+    grouped = group_findings(findings)
+    dataset_context = build_dataset_context(df)
+
+    formatted_findings = ""
+
+    for category, items in grouped.items():
+
+        formatted_findings += f"\n====================\n"
+        formatted_findings += f"{category.upper()}\n"
+        formatted_findings += f"====================\n\n"
+
+        for item in items:
+
+            formatted_findings += f"""
+    Observation:
+    {item['title']}
+
+    Severity:
+    {item['severity']}
+
+    Evidence:
+    """
+
+            for key, value in item["evidence"].items():
+                formatted_findings += f"- {key}: {value}\n"
+
+            formatted_findings += "\n"
 
     prompt = f"""
-You are an experienced business analyst.
+    You are a senior business strategy consultant.
 
-Dataset Findings:
+    You are NOT summarizing data.
 
-{chr(10).join(findings)}
+    You are explaining the business story behind verified analytical findings.
 
-Generate:
+    The findings below are grouped into business themes.
 
-📈 Trend Summary
-🚨 Risks / Anomalies
-🔮 Forecast
-💡 Recommended Actions
+    ============================
+    DATASET CONTEXT
+    ============================
 
-Rules:
+    {dataset_context}
+    
+    Interpret the findings in the context of this dataset.
 
-- Focus on business impact.
-- Do not repeat findings word-for-word.
-- If evidence is insufficient for forecasting,
-  say 'Additional historical data required.'
-- Give practical recommendations.
-- Keep under 150 words.
-"""
+If a revenue column exists,
+prioritize explaining revenue-related insights.
+
+If a date column exists,
+consider whether trends could be time-related.
+
+If no date column exists,
+do not discuss seasonality.
+
+Do not assume business metrics that are not present in the dataset.
+
+    ============================
+    BUSINESS FINDINGS
+    ============================
+
+    {formatted_findings}
+
+    For each business theme, produce the following sections.
+
+    ## What is happening?
+
+    Combine the observations into one clear business insight.
+    Do not repeat the evidence.
+
+    ## Why is it likely happening?
+
+    Reason from the evidence.
+
+    Explain the MOST LIKELY business causes.
+
+    If several explanations exist,
+    state the most likely one.
+
+    Do not invent facts.
+
+    ## Why does this matter?
+
+    Explain the business consequences.
+
+    Focus on revenue,
+    profit,
+    customer retention,
+    operational efficiency,
+    or growth.
+
+    ## What should management investigate?
+
+    Suggest what additional data
+    or analysis would confirm the cause.
+
+    Do NOT jump directly to solutions.
+
+    ## Recommended action
+
+    Give ONE practical recommendation.
+
+    The recommendation must directly follow from the evidence.
+    
+    Think through each business theme in this order.
+
+    1. Observation
+
+    2. Possible causes
+
+    3. Evidence supporting those causes
+
+    4. Business impact
+
+    5. What should be investigated next
+
+    6. Recommendation
+
+    Rules
+
+    - Never simply repeat statistics.
+
+    - Every conclusion must reference the evidence.
+
+    - If evidence is insufficient,
+    say so.
+
+    - Distinguish clearly between:
+
+    Observation
+
+    ↓
+
+    Reasoning
+
+    ↓
+
+    Business Impact
+
+    ↓
+
+    Recommendation
+    
+    Every recommendation must clearly follow from the evidence.
+
+    Bad example:
+
+    Sales are concentrated.
+
+    Recommendation:
+    Improve marketing.
+
+    Good example:
+
+    Sales are concentrated among five customers.
+
+    Recommendation:
+    Reduce customer concentration by acquiring more mid-sized customers and strengthening retention programs for existing accounts.
+
+    Write like a McKinsey or Bain consultant.
+
+    Maximum 300 words.
+    
+    When evidence is insufficient to identify a single cause,
+    state that multiple explanations are possible
+    and explain what additional information would confirm them.
+    """
 
     response = client.chat.completions.create(
         model="llama-3.1-8b-instant",
@@ -497,7 +805,8 @@ Rules:
                 "content": prompt
             }
         ],
-        temperature=0.3
+        temperature=0.2,
+        max_completion_tokens=600
     )
 
     return response.choices[0].message.content
@@ -933,7 +1242,7 @@ else:
                 ):
                     findings = generate_findings(df)
 
-                    ai_summary = generate_ai_insights(findings)
+                    ai_summary = generate_ai_insights(df, findings)
 
                     st.session_state["findings"] = findings
                     st.session_state["ai_summary"] = ai_summary
@@ -1021,7 +1330,10 @@ else:
                 st.markdown(
                     f"""
                     <div class="insight-card">
-                        📌 {finding}
+                        <b>{finding['title']}</b><br>
+                        Category: {finding['category']}<br>
+                        Severity: {finding['severity']}<br>
+                        Evidence: {finding['evidence']}
                     </div>
                     """,
                     unsafe_allow_html=True
