@@ -145,7 +145,7 @@ unsafe_allow_html=True
 
 @st.dialog("SalesPulse Demo")
 def show_demo():
-    st.video("Demo video.mp4")
+    st.video(r"C:\Users\acer.DESKTOP-1VQGBE7\OneDrive\Desktop\SalesPulse\Demo video.mp4")
 
 if st.button("▶ Watch Demo"):
     show_demo()
@@ -178,61 +178,46 @@ def find_revenue_column(df):
 
     return None
 
-def get_analysis_columns(df):
+BUSINESS_IGNORE_KEYWORDS = [
+    "id",
+    "customer_id",
+    "customerid",
+    "transaction",
+    "transaction_id",
+    "invoice",
+    "invoice_id",
+    "order",
+    "order_id",
+    "uuid",
+    "guid",
+    "serial",
+    "record",
+    "email",
+    "phone",
+    "mobile",
+    "postal",
+    "zipcode",
+    "zip",
+    "pin",
+    "address"
+]
 
-    ID_KEYWORDS = [
-        "id",
-        "customerid",
-        "customer_id",
-        "invoice",
-        "invoiceid",
-        "invoice_id",
-        "orderid",
-        "order_id",
-        "transaction",
-        "uuid",
-        "guid",
-        "email"
-    ]
+BUSINESS_METRICS = [
+    "sales",
+    "revenue",
+    "amount",
+    "profit",
+    "price",
+    "cost",
+    "quantity",
+    "discount",
+    "margin",
+    "income"
+]
 
-    analysis_cols = []
+def get_business_columns(df):
 
-    for col in df.select_dtypes(exclude=np.number).columns:
-
-        col_lower = col.lower().replace(" ", "").replace("-", "_")
-
-        # Skip identifier-like names
-        if any(keyword in col_lower for keyword in ID_KEYWORDS):
-            continue
-
-        # Skip columns where almost every value is unique
-        uniqueness_ratio = df[col].nunique(dropna=True) / len(df)
-
-        if uniqueness_ratio > 0.95:
-            continue
-
-        analysis_cols.append(col)
-
-    return analysis_cols
-
-def get_groupby_columns(df):
-
-    ID_KEYWORDS = [
-        "id",
-        "customerid",
-        "customer_id",
-        "invoice",
-        "invoiceid",
-        "invoice_id",
-        "orderid",
-        "order_id",
-        "transaction",
-        "uuid",
-        "guid",
-        "email"
-    ]
-
-    columns = []
+    business_columns = []
 
     for col in df.columns:
 
@@ -243,13 +228,33 @@ def get_groupby_columns(df):
                .replace("-", "")
         )
 
-        # Skip identifier columns
-        if any(keyword.replace("_", "") in normalized for keyword in ID_KEYWORDS):
+        if any(
+            keyword.replace("_","") in normalized
+            for keyword in BUSINESS_IGNORE_KEYWORDS
+        ):
             continue
 
-        columns.append(col)
+        uniqueness = df[col].nunique(dropna=True) / max(len(df),1)
 
-    return columns
+        # Ignore columns where almost every value is unique
+        if uniqueness > 0.95:
+            continue
+
+        business_columns.append(col)
+
+    return business_columns
+
+def get_analysis_columns(df):
+
+    business_columns = get_business_columns(df)
+
+    return [
+        col
+        for col in business_columns
+        if not is_numeric_dtype(df[col])
+    ]
+def get_groupby_columns(df):
+    return get_business_columns(df)
 
 def generate_findings(df):
     findings = []
@@ -273,7 +278,13 @@ def generate_findings(df):
             "evidence": evidence
         })
 
-    numeric_cols = df.select_dtypes(include=np.number).columns
+    business_columns = get_business_columns(df)
+
+    numeric_cols = [
+        col
+        for col in business_columns
+        if is_numeric_dtype(df[col])
+    ]
     categorical_cols = get_analysis_columns(df)
 
 
@@ -480,22 +491,38 @@ def generate_findings(df):
     # CORRELATIONS
     # =========================
 
-    if len(numeric_cols) >= 2:
+    metric_cols = []
 
-        corr = df[numeric_cols].corr()
+    for col in numeric_cols:
 
-        for i in range(len(numeric_cols)):
-            for j in range(i + 1, len(numeric_cols)):
+        lower = col.lower()
+
+        if any(metric in lower for metric in BUSINESS_METRICS):
+            metric_cols.append(col)
+
+    if len(metric_cols) >= 2:
+
+        corr = df[metric_cols].corr()
+
+        for i in range(len(metric_cols)):
+
+            for j in range(i + 1, len(metric_cols)):
 
                 value = corr.iloc[i, j]
 
                 if abs(value) > 0.7:
                     add_finding(
+
                         category="Performance",
-                        title=f"{numeric_cols[i]} strongly relates to {numeric_cols[j]}",
+
+                        title=f"{metric_cols[i]} strongly relates to {metric_cols[j]}",
+
                         severity="Medium",
+
                         metric="Correlation",
+
                         value=round(value, 2),
+
                         evidence={
                             "Correlation": round(float(value), 2)
                         }
@@ -555,12 +582,19 @@ def group_findings(findings):
     return grouped
 
 def build_dataset_context(df):
+    business_columns = get_business_columns(df)
 
-    numeric_cols = list(df.select_dtypes(include="number").columns)
+    numeric_cols = [
+        c
+        for c in business_columns
+        if is_numeric_dtype(df[c])
+    ]
 
-    categorical_cols = list(
-        df.select_dtypes(exclude="number").columns
-    )
+    categorical_cols = [
+        c
+        for c in business_columns
+        if not is_numeric_dtype(df[c])
+    ]
 
     revenue_col = find_revenue_column(df)
 
@@ -630,8 +664,20 @@ Duplicate Rows:
     return context
 
 def generate_ai_insights(df, findings):
-    grouped = group_findings(findings)
     dataset_context = build_dataset_context(df)
+
+    filtered_findings = []
+    for finding in findings:
+        text = finding["title"].lower()
+
+        if any(
+                word.replace("_", "") in text.replace("_", "")
+                for word in BUSINESS_IGNORE_KEYWORDS
+        ):
+            continue
+
+        filtered_findings.append(finding)
+    grouped = group_findings(filtered_findings)
 
     formatted_findings = ""
 
@@ -674,6 +720,37 @@ def generate_ai_insights(df, findings):
     {dataset_context}
     
     Interpret the findings in the context of this dataset.
+    
+    IMPORTANT BUSINESS RULES
+
+Treat identifier columns as metadata only.
+
+Examples include:
+
+- Transaction ID
+- Customer ID
+- Invoice ID
+- Order Number
+- UUID
+- Serial Number
+- Email
+- Phone Number
+- Postal Code
+
+Never generate:
+
+• observations
+• correlations
+• trends
+• recommendations
+• business insights
+
+about identifier columns.
+
+Ignore them completely, even if they appear in the findings.
+
+Only analyse business metrics such as revenue, sales, profit, quantity, cost, discount,
+margin and meaningful business dimensions such as product, customer segment, region, category or date.
 
 If a revenue column exists,
 prioritize explaining revenue-related insights.
@@ -703,10 +780,21 @@ Do not assume business metrics that are not present in the dataset.
 
     Reason from the evidence.
 
-    Explain the MOST LIKELY business causes.
+    Explain only causes that are directly supported by the findings.
 
-    If several explanations exist,
-    state the most likely one.
+If the evidence is insufficient to identify a cause,
+explicitly state that the cause cannot be determined from the available data.
+
+Do NOT speculate.
+
+Do NOT invent business scenarios.
+
+Do NOT assume customer behaviour,
+marketing performance,
+production quality,
+competition,
+or operational issues
+unless those are directly supported by the findings.
 
     Do not invent facts.
 
@@ -789,6 +877,27 @@ Do not assume business metrics that are not present in the dataset.
     Reduce customer concentration by acquiring more mid-sized customers and strengthening retention programs for existing accounts.
 
     Write like a McKinsey or Bain consultant.
+    
+    SPECIAL RULE FOR STATISTICAL FINDINGS
+
+If a finding only describes statistical behaviour
+(such as outliers, skewness, variance, correlation, or concentration),
+do NOT explain why it happened unless the dataset provides direct evidence.
+
+Instead:
+
+• Explain what the statistical pattern indicates.
+• Explain whether it is significant enough to investigate.
+• State what additional data or analysis would be needed to determine the true cause.
+
+Do not speculate or invent business scenarios.
+
+Avoid statements such as:
+- "This happened because..."
+- "This is likely due to..."
+- "The root cause is..."
+
+unless the evidence clearly supports those conclusions.
 
     Maximum 300 words.
     
