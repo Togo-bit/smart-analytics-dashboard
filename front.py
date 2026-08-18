@@ -145,7 +145,7 @@ unsafe_allow_html=True
 
 @st.dialog("SalesPulse Demo")
 def show_demo():
-    st.video(r"C:\Users\acer.DESKTOP-1VQGBE7\OneDrive\Desktop\SalesPulse\Demo video.mp4")
+    st.video("Demo video.mp4")
 
 if st.button("▶ Watch Demo"):
     show_demo()
