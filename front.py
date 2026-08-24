@@ -304,7 +304,7 @@ def generate_findings(df):
 
             if share.iloc[0] > 40:
                 add_finding(
-                    category="Customers",
+                    category="Distribution",
                     title=f"{share.index[0]} dominates {col}",
                     severity="High" if share.iloc[0] > 60 else "Medium",
                     metric="Share",
@@ -529,36 +529,78 @@ def generate_findings(df):
                     )
 
     # =========================
-    # ANOMALY DETECTION
+    # UNUSUAL VALUE DISTRIBUTION
     # =========================
 
     for col in numeric_cols:
 
         try:
 
-            q99 = df[col].quantile(0.99)
+            # Skip ID-like numeric columns
+            normalized_col = (
+                col.lower()
+                .replace(" ", "")
+                .replace("_", "")
+                .replace("-", "")
+            )
 
-            extreme = df[df[col] > q99]
+            if any(
+                    keyword.replace("_", "") in normalized_col
+                    for keyword in BUSINESS_IGNORE_KEYWORDS
+            ):
+                continue
 
-            if len(extreme) > 0:
+            q1 = df[col].quantile(0.25)
+            q3 = df[col].quantile(0.75)
+
+            iqr = q3 - q1
+
+            if iqr == 0:
+                continue
+
+            lower_bound = q1 - 1.5 * iqr
+            upper_bound = q3 + 1.5 * iqr
+
+            unusual_values = df[
+                (df[col] < lower_bound) |
+                (df[col] > upper_bound)
+                ]
+
+            unusual_percentage = (
+                                         len(unusual_values) / len(df)
+                                 ) * 100
+
+            # Only report meaningful distributions
+            if unusual_percentage >= 5:
                 add_finding(
-                    category="Risk",
-                    title=f"Extreme values detected in {col}",
-                    severity="Medium",
+                    category="Data Pattern",
+
+                    title=f"Unusual value distribution detected in {col}",
+
+                    severity=(
+                        "High"
+                        if unusual_percentage >= 15
+                        else "Medium"
+                    ),
+
                     metric=col,
+                    dimension=col,
+                    value=round(unusual_percentage, 1),
+
                     evidence={
-                        "Threshold": round(float(q99), 2),
-                        "Outliers": int(len(extreme))
+                        "Unusual Values":
+                            int(len(unusual_values)),
+
+                        "Percentage":
+                            f"{unusual_percentage:.1f}%",
+
+                        "IQR Reference Range":
+                            f"{lower_bound:.2f} to {upper_bound:.2f}"
                     }
                 )
 
         except:
             pass
-
-    print("-" * 50)
-
-
-    print("-" * 50)
 
     findings = sorted(
         findings,
@@ -568,7 +610,7 @@ def generate_findings(df):
         )
     )
 
-    return findings[:10]
+    return findings[:6]
 
 from collections import defaultdict
 
@@ -800,13 +842,27 @@ unless those are directly supported by the findings.
 
     ## Why does this matter?
 
-    Explain the business consequences.
+    Explain only consequences that can reasonably follow
+    from the available evidence.
 
-    Focus on revenue,
-    profit,
-    customer retention,
-    operational efficiency,
-    or growth.
+    Do not mention:
+
+    - churn
+    - customer retention
+    - revenue loss
+    - profit impact
+    - market opportunity
+    - competition
+    - growth limitations
+
+    unless the dataset or findings provide evidence related
+    to those outcomes.
+
+    If the business consequence cannot be established,
+    say:
+
+    "The pattern may warrant further analysis, but the available
+    data does not quantify its business impact."
 
     ## What should management investigate?
 
@@ -817,23 +873,28 @@ unless those are directly supported by the findings.
 
     ## Recommended action
 
-    Give ONE practical recommendation.
-
-    The recommendation must directly follow from the evidence.
+    Only recommend an action if the analytical evidence
+    directly supports an intervention.
     
-    Think through each business theme in this order.
-
-    1. Observation
-
-    2. Possible causes
-
-    3. Evidence supporting those causes
-
-    4. Business impact
-
-    5. What should be investigated next
-
-    6. Recommendation
+    If the finding is descriptive and does not establish
+    a problem or opportunity, recommend further analysis
+    or monitoring instead of a business intervention.
+    
+    Never recommend:
+    
+    - market expansion
+    - targeted campaigns
+    - product launches
+    - diversification
+    - pricing changes
+    - customer acquisition programs
+    
+    unless supported by evidence in the dataset.
+    
+    A valid recommendation may be:
+    
+    "Monitor this distribution and compare it with performance
+    metrics before taking corrective action."
 
     Rules
 
@@ -876,7 +937,18 @@ unless those are directly supported by the findings.
     Recommendation:
     Reduce customer concentration by acquiring more mid-sized customers and strengthening retention programs for existing accounts.
 
-    Write like a McKinsey or Bain consultant.
+    Write like an evidence-based senior data analyst presenting findings
+to executive management.
+
+Accuracy is more important than sounding strategic.
+
+Do not create a strategic narrative when the data only supports
+a descriptive observation.
+
+It is acceptable to conclude:
+
+"The available data identifies the pattern, but does not establish
+its cause or indicate that intervention is required."
     
     SPECIAL RULE FOR STATISTICAL FINDINGS
 
@@ -899,26 +971,107 @@ Avoid statements such as:
 
 unless the evidence clearly supports those conclusions.
 
-    Maximum 300 words.
+    Keep the response concise.
+
+For each business theme:
+
+- What is happening: maximum 60 words
+- Why is it likely happening: maximum 60 words
+- Why does this matter: maximum 60 words
+- What should management investigate: maximum 50 words
+- Recommended action: maximum 40 words
+
+Only include themes for which meaningful findings are available.
+Do not create a section just because a category exists.
     
     When evidence is insufficient to identify a single cause,
     state that multiple explanations are possible
     and explain what additional information would confirm them.
+    
+    DATA INTERPRETATION RULE
+
+    Do not assume that rows represent customers.
+    
+    Do not use phrases such as:
+    
+    - customer base
+    - customer mix
+    - market share
+    - transactions
+    - buyers
+    
+    unless the dataset context explicitly confirms this.
+    
+    Use neutral language such as:
+    
+    - records
+    - observations
+    - entities
+    - entries
+    - the dataset
+    
+    when the meaning of the rows is unclear.
+    
+    IMPORTANT GROUPING RULE
+
+    Multiple findings within the same category may describe
+    different independent variables.
+    
+    Do not assume that they are causally related.
+    
+    For example:
+    
+    - Gender distribution
+    - Geographic distribution
+    - Travel type
+    
+    should not automatically be combined into a single
+    "customer profile" unless the dataset provides evidence
+    that these variables are connected.
+    
+    When findings are independent, describe them as separate
+    patterns within the same theme.
     """
 
     response = client.chat.completions.create(
         model="openai/gpt-oss-20b",
         messages=[
             {
+                "role": "system",
+                "content": """
+    You are an evidence-based business analytics assistant.
+
+    Follow the requested output structure exactly.
+
+    Do not invent facts, causes, business risks, or recommendations
+    that are not supported by the analytical findings.
+
+    If the evidence does not establish the cause of a pattern,
+    explicitly state that the cause cannot be determined from
+    the available data.
+
+    Do not add introductions, conclusions, disclaimers,
+    navigation links, HTML, SVG, or unrelated content.
+    """
+            },
+            {
                 "role": "user",
                 "content": prompt
             }
         ],
-        temperature=0.2,
-        max_completion_tokens=600
+        temperature=0.1,
+        max_completion_tokens=2500,
+        reasoning_effort="low"
     )
 
-    return response.choices[0].message.content
+    print("Finish reason:", response.choices[0].finish_reason)
+
+    content = response.choices[0].message.content
+
+    if not content:
+        return "Unable to generate executive insights. Please try again."
+
+    return content
 
 st.set_page_config(layout='wide')
 
