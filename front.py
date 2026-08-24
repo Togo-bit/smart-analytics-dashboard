@@ -168,37 +168,76 @@ def find_revenue_column(df):
         "income",
         "profit",
         "price",
-        "total"
+        "total",
+        "turnover",
+        "value"
     ]
 
+    # First: exact matches
     for col in df.columns:
 
-        if col.lower() in revenue_keywords:
+        normalized = (
+            str(col)
+            .lower()
+            .strip()
+            .replace(" ", "")
+            .replace("_", "")
+            .replace("-", "")
+        )
+
+        if normalized in revenue_keywords:
+            return col
+
+    # Second: partial matches
+    for col in df.columns:
+
+        normalized = (
+            str(col)
+            .lower()
+            .strip()
+            .replace(" ", "")
+            .replace("_", "")
+            .replace("-", "")
+        )
+
+        if any(
+            keyword in normalized
+            for keyword in revenue_keywords
+        ):
             return col
 
     return None
 
 BUSINESS_IGNORE_KEYWORDS = [
-    "id",
     "customer_id",
     "customerid",
-    "transaction",
     "transaction_id",
-    "invoice",
+    "transactionid",
     "invoice_id",
-    "order",
+    "invoiceid",
     "order_id",
+    "orderid",
+    "product_id",
+    "productid",
+    "user_id",
+    "userid",
+    "employee_id",
+    "employeeid",
+    "record_id",
+    "recordid",
     "uuid",
     "guid",
-    "serial",
-    "record",
+    "serial_number",
+    "serialnumber",
     "email",
     "phone",
     "mobile",
-    "postal",
+    "postal_code",
+    "postalcode",
     "zipcode",
-    "zip",
-    "pin",
+    "zip_code",
+    "pin_code",
+    "pincode",
     "address"
 ]
 
@@ -219,24 +258,32 @@ def get_business_columns(df):
 
     business_columns = []
 
+    identifier_keywords = {
+        keyword.replace("_", "").replace("-", "").replace(" ", "")
+        for keyword in BUSINESS_IGNORE_KEYWORDS
+    }
+
     for col in df.columns:
 
         normalized = (
-            col.lower()
-               .replace(" ", "")
-               .replace("_", "")
-               .replace("-", "")
+            str(col)
+            .lower()
+            .strip()
+            .replace(" ", "")
+            .replace("_", "")
+            .replace("-", "")
         )
 
-        if any(
-            keyword.replace("_","") in normalized
-            for keyword in BUSINESS_IGNORE_KEYWORDS
-        ):
+        # Ignore known identifier columns
+        if normalized in identifier_keywords:
             continue
 
-        uniqueness = df[col].nunique(dropna=True) / max(len(df),1)
+        uniqueness = (
+            df[col].nunique(dropna=True) /
+            max(len(df), 1)
+        )
 
-        # Ignore columns where almost every value is unique
+        # Ignore almost completely unique columns
         if uniqueness > 0.95:
             continue
 
@@ -610,6 +657,25 @@ def generate_findings(df):
         )
     )
 
+    # Always provide something for the AI to analyze
+    if not findings:
+        findings.append({
+            "category": "Data Overview",
+            "title": "No significant statistical patterns were detected",
+            "severity": "Low",
+            "metric": None,
+            "dimension": None,
+            "value": None,
+            "evidence": {
+                "Rows": len(df),
+                "Columns": len(df.columns),
+                "Numeric Columns": len(numeric_cols),
+                "Categorical Columns": len(categorical_cols),
+                "Missing Values": int(df.isna().sum().sum()),
+                "Duplicate Rows": int(df.duplicated().sum())
+            }
+        })
+
     return findings[:6]
 
 from collections import defaultdict
@@ -708,17 +774,13 @@ Duplicate Rows:
 def generate_ai_insights(df, findings):
     dataset_context = build_dataset_context(df)
 
-    filtered_findings = []
-    for finding in findings:
-        text = finding["title"].lower()
+    filtered_findings = findings.copy()
+    if not filtered_findings:
+        return (
+            "No significant business findings were detected "
+            "in this dataset."
+        )
 
-        if any(
-                word.replace("_", "") in text.replace("_", "")
-                for word in BUSINESS_IGNORE_KEYWORDS
-        ):
-            continue
-
-        filtered_findings.append(finding)
     grouped = group_findings(filtered_findings)
 
     formatted_findings = ""
@@ -811,7 +873,7 @@ Do not assume business metrics that are not present in the dataset.
 
     {formatted_findings}
 
-    For each business theme, produce the following sections.
+    For each meaningful finding or business theme, produce the following sections.
 
     ## What is happening?
 
@@ -873,28 +935,96 @@ unless those are directly supported by the findings.
 
     ## Recommended action
 
-    Only recommend an action if the analytical evidence
-    directly supports an intervention.
-    
-    If the finding is descriptive and does not establish
-    a problem or opportunity, recommend further analysis
-    or monitoring instead of a business intervention.
-    
-    Never recommend:
-    
-    - market expansion
-    - targeted campaigns
-    - product launches
-    - diversification
-    - pricing changes
-    - customer acquisition programs
-    
-    unless supported by evidence in the dataset.
-    
-    A valid recommendation may be:
-    
-    "Monitor this distribution and compare it with performance
-    metrics before taking corrective action."
+        ## Recommended action
+
+    Give ONE practical and specific business action that
+    logically follows from the finding.
+
+    The recommendation should tell management what to DO,
+    not merely what to observe.
+
+    Recommendations should be proportionate to the evidence.
+
+    The data does not need to prove the root cause before
+    recommending a reasonable business response.
+
+    However, do not invent facts or claim that a specific
+    cause has been proven when it has not.
+
+    Use the finding to determine the appropriate action.
+
+    Examples:
+
+    If revenue is highly concentrated in one country:
+    "Prioritize testing growth opportunities in the next
+    highest-potential markets while protecting the existing
+    revenue base."
+
+    If one product category dominates revenue:
+    "Develop complementary offerings around the dominant
+    category while testing demand for adjacent categories."
+
+    If a customer segment dominates the dataset:
+    "Create targeted offerings for underrepresented segments
+    and compare their response against the dominant segment."
+
+    If unusually large quantities are present:
+    "Review high-quantity transactions separately and establish
+    a bulk-order classification so they do not distort normal
+    sales analysis."
+
+    If prices contain substantial outliers:
+    "Segment pricing outliers from normal transactions and
+    review them against product, discount, and order-level data."
+
+    If a strong correlation exists:
+    "Investigate the relationship operationally and prioritize
+    the variable that can be influenced by management."
+
+    If a geographic concentration exists:
+    "Identify the strongest underrepresented geographic segments
+    and test demand there before committing significant resources."
+
+    If the finding is clearly a data-quality issue:
+    "Introduce validation rules for the affected field and
+    review existing anomalous records."
+
+    Do NOT automatically use:
+    - "Monitor"
+    - "Validate"
+    - "Investigate"
+    - "Collect more data"
+
+    as the recommendation.
+
+    These may be appropriate when the finding genuinely
+    indicates insufficient evidence, but they should NOT be
+    the default recommendation.
+
+    The recommendation should preferably involve one of:
+
+    - optimize
+    - prioritize
+    - segment
+    - reduce dependency
+    - improve
+    - test
+    - restructure
+    - target
+    - review
+    - standardize
+    - allocate
+    - develop
+    - expand
+    - reduce
+    - increase
+
+    Only recommend actions that are reasonably connected
+    to the observed finding.
+
+    Do not claim that the action will definitely increase
+    revenue, profit, retention, or growth unless the data
+    supports that conclusion.
 
     Rules
 
@@ -981,7 +1111,8 @@ For each business theme:
 - What should management investigate: maximum 50 words
 - Recommended action: maximum 40 words
 
-Only include themes for which meaningful findings are available.
+Only include themes supported by the findings provided.
+If no significant business pattern exists, clearly state that no significant pattern was detected rather than inventing one.
 Do not create a section just because a category exists.
     
     When evidence is insufficient to identify a single cause,
