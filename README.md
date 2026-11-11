@@ -1,4 +1,4 @@
-# 📊 Smart Analytics Dashboard
+# 📊 SalesPulse
 
 Analyze your data in seconds — no coding required.
 
